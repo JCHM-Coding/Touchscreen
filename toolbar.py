@@ -127,11 +127,46 @@ class VIEW3D_OT_simple_join(bpy.types.Operator):
 
 class VIEW3D_OT_simple_undo(bpy.types.Operator):
     bl_idname="view3d.simple_undo"; bl_label="Undo"
-    def execute(self,context): bpy.ops.ed.undo(); return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        # Disable the button when Blender has no undo step available.
+        return bpy.ops.ed.undo.poll()
+
+    def execute(self, context):
+        # The extra poll guard keeps the operator safe even if the undo
+        # state changes between drawing the button and pressing it.
+        if not bpy.ops.ed.undo.poll():
+            return {'CANCELLED'}
+        bpy.ops.ed.undo()
+        return {'FINISHED'}
+
 
 class VIEW3D_OT_simple_redo(bpy.types.Operator):
     bl_idname="view3d.simple_redo"; bl_label="Redo"
-    def execute(self,context): bpy.ops.ed.redo(); return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        # Disable the button when Blender has no redo step available.
+        return bpy.ops.ed.redo.poll()
+
+    def execute(self, context):
+        # The extra poll guard keeps the operator safe even if the redo
+        # state changes between drawing the button and pressing it.
+        if not bpy.ops.ed.redo.poll():
+            return {'CANCELLED'}
+        bpy.ops.ed.redo()
+        return {'FINISHED'}
+
+class VIEW3D_OT_simple_undo_history(bpy.types.Operator):
+    bl_idname="view3d.simple_undo_history"; bl_label="History"
+
+    def invoke(self, context, event):
+        # Use the same invocation mode as Blender's Edit > Undo History.
+        # This opens the native Undo History popup instead of executing it
+        # silently through the wrapper operator.
+        return bpy.ops.ed.undo_history('INVOKE_DEFAULT')
+
 
 class VIEW3D_OT_simple_repeat_last(bpy.types.Operator):
     bl_idname="view3d.simple_repeat_last"; bl_label="Repeat Last"
@@ -254,7 +289,7 @@ def draw_toolbar(self, context):
             [('view3d.simple_undo', 'LOOP_BACK', 'Undo', {}),
              ('view3d.simple_redo', 'LOOP_FORWARDS', 'Redo', {})],
             [('view3d.simple_repeat_last', 'RECOVER_LAST', 'Repeat Last', {}),
-             ('ed.undo_history', 'HELP', 'History', {})],
+             ('view3d.simple_undo_history', 'HELP', 'History', {})],
         ]
     elif mode == 'EDIT_MESH':
         groups = [
@@ -265,7 +300,7 @@ def draw_toolbar(self, context):
             [('view3d.simple_undo', 'LOOP_BACK', 'Undo', {}),
              ('view3d.simple_redo', 'LOOP_FORWARDS', 'Redo', {})],
             [('view3d.simple_repeat_last', 'RECOVER_LAST', 'Repeat Last', {}),
-             ('ed.undo_history', 'HELP', 'History', {})],
+             ('view3d.simple_undo_history', 'HELP', 'History', {})],
         ]
     elif mode in {'EDIT_CURVE', 'EDIT_ARMATURE'}:
         select = 'curve.select_all' if mode == 'EDIT_CURVE' else 'armature.select_all'
@@ -275,13 +310,13 @@ def draw_toolbar(self, context):
             [('view3d.simple_undo', 'LOOP_BACK', 'Undo', {}),
              ('view3d.simple_redo', 'LOOP_FORWARDS', 'Redo', {})],
             [('view3d.simple_repeat_last', 'RECOVER_LAST', 'Repeat Last', {}),
-             ('ed.undo_history', 'HELP', 'History', {})],
+             ('view3d.simple_undo_history', 'HELP', 'History', {})],
         ]
     elif mode in {'SCULPT', 'PAINT_VERTEX', 'PAINT_WEIGHT', 'PAINT_TEXTURE'}:
         groups = [
             [('view3d.simple_undo', 'LOOP_BACK', 'Undo', {}),
              ('view3d.simple_redo', 'LOOP_FORWARDS', 'Redo', {})],
-            [('ed.undo_history', 'HELP', 'History', {})],
+            [('view3d.simple_undo_history', 'HELP', 'History', {})],
         ]
     else:
         return
@@ -304,7 +339,7 @@ def draw_toolbar(self, context):
         if index != len(groups) - 1:
             _separator(layout)
 
-CLASSES=(VIEW3D_OT_simple_delete,VIEW3D_OT_delete_menu,VIEW3D_OT_simple_duplicate,VIEW3D_OT_simple_duplicate_linked,VIEW3D_OT_simple_join,VIEW3D_OT_simple_undo,VIEW3D_OT_simple_redo,VIEW3D_OT_simple_repeat_last,VIEW3D_MT_touchscreen_fill,VIEW3D_OT_fill_menu,VIEW3D_MT_touchscreen_separate,VIEW3D_OT_separate_menu,VIEW3D_MT_touchscreen_show_hide,VIEW3D_OT_show_hide_menu)
+CLASSES=(VIEW3D_OT_simple_delete,VIEW3D_OT_delete_menu,VIEW3D_OT_simple_duplicate,VIEW3D_OT_simple_duplicate_linked,VIEW3D_OT_simple_join,VIEW3D_OT_simple_undo,VIEW3D_OT_simple_redo,VIEW3D_OT_simple_undo_history,VIEW3D_OT_simple_repeat_last,VIEW3D_MT_touchscreen_fill,VIEW3D_OT_fill_menu,VIEW3D_MT_touchscreen_separate,VIEW3D_OT_separate_menu,VIEW3D_MT_touchscreen_show_hide,VIEW3D_OT_show_hide_menu)
 
 def register():
     for cls in CLASSES:
