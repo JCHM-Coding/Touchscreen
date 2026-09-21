@@ -144,7 +144,6 @@ class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     def draw(self,context):
         self.layout.operator("mesh.fill",text="Fill")
         self.layout.operator("mesh.fill_grid",text="Grid Fill")
-        self.layout.operator("mesh.bridge_edge_loops",text="Bridge Edge Loops")
 
 class VIEW3D_OT_fill_menu(bpy.types.Operator):
     bl_idname="view3d.fill_menu"; bl_label="Fill"
@@ -161,6 +160,18 @@ class VIEW3D_MT_touchscreen_separate(bpy.types.Menu):
 class VIEW3D_OT_separate_menu(bpy.types.Operator):
     bl_idname="view3d.separate_menu"; bl_label="Separate"
     def execute(self,context): bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_separate"); return {'FINISHED'}
+
+class VIEW3D_MT_touchscreen_show_hide(bpy.types.Menu):
+    bl_idname="VIEW3D_MT_touchscreen_show_hide"; bl_label="Show/Hide"
+    def draw(self,context):
+        l=self.layout
+        l.operator("object.hide_view_set", text="Hide Selected").unselected=False
+        l.operator("object.hide_view_set", text="Hide Unselected").unselected=True
+        l.operator("object.hide_view_clear", text="Show All")
+
+class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
+    bl_idname="view3d.show_hide_menu"; bl_label="Show/Hide"
+    def execute(self,context): bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_show_hide"); return {'FINISHED'}
 
 EDIT_REPEAT_LAST_TOOLS = {
     'builtin.extrude_region','builtin.inset_faces','builtin.bevel','builtin.spin','builtin.poly_build'
@@ -238,7 +249,8 @@ def draw_toolbar(self, context):
              ('object.select_all', 'SCENE_DATA', 'Select All', {'action': 'SELECT'})],
             [('view3d.simple_duplicate', 'ONIONSKIN_ON', 'Duplicate', {}),
              ('view3d.simple_duplicate_linked', 'ONIONSKIN_ON', 'Duplicate Linked', {})],
-            [('view3d.simple_join', 'ADD', 'Join', {})],
+            [('view3d.simple_join', 'ADD', 'Join', {}),
+             ('view3d.show_hide_menu', 'HIDE_OFF', 'Show/Hide', {})],
             [('view3d.simple_undo', 'LOOP_BACK', 'Undo', {}),
              ('view3d.simple_redo', 'LOOP_FORWARDS', 'Redo', {})],
             [('view3d.simple_repeat_last', 'RECOVER_LAST', 'Repeat Last', {}),
@@ -292,7 +304,7 @@ def draw_toolbar(self, context):
         if index != len(groups) - 1:
             _separator(layout)
 
-CLASSES=(VIEW3D_OT_simple_delete,VIEW3D_OT_delete_menu,VIEW3D_OT_simple_duplicate,VIEW3D_OT_simple_duplicate_linked,VIEW3D_OT_simple_join,VIEW3D_OT_simple_undo,VIEW3D_OT_simple_redo,VIEW3D_OT_simple_repeat_last,VIEW3D_MT_touchscreen_fill,VIEW3D_OT_fill_menu,VIEW3D_MT_touchscreen_separate,VIEW3D_OT_separate_menu)
+CLASSES=(VIEW3D_OT_simple_delete,VIEW3D_OT_delete_menu,VIEW3D_OT_simple_duplicate,VIEW3D_OT_simple_duplicate_linked,VIEW3D_OT_simple_join,VIEW3D_OT_simple_undo,VIEW3D_OT_simple_redo,VIEW3D_OT_simple_repeat_last,VIEW3D_MT_touchscreen_fill,VIEW3D_OT_fill_menu,VIEW3D_MT_touchscreen_separate,VIEW3D_OT_separate_menu,VIEW3D_MT_touchscreen_show_hide,VIEW3D_OT_show_hide_menu)
 
 def register():
     for cls in CLASSES:
