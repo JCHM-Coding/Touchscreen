@@ -170,9 +170,31 @@ class VIEW3D_OT_simple_undo_history(bpy.types.Operator):
 
 class VIEW3D_OT_simple_repeat_last(bpy.types.Operator):
     bl_idname="view3d.simple_repeat_last"; bl_label="Repeat Last"
+
     @classmethod
-    def poll(cls,context): return _repeat_last_supported(context)
-    def execute(self,context): bpy.ops.screen.repeat_last(); return {'FINISHED'}
+    def poll(cls, context):
+        # Keep the existing mode/tool restriction, but also use Blender's
+        # native poll as a null-condition guard. This prevents the button
+        # from trying to run Repeat Last when Blender has no repeatable
+        # operation available.
+        if not _repeat_last_supported(context):
+            return False
+        try:
+            return bpy.ops.screen.repeat_last.poll()
+        except (AttributeError, RuntimeError):
+            return False
+
+    def execute(self, context):
+        # The repeat state can change between drawing and clicking.
+        # Guard it again so an empty Repeat Last state is simply cancelled
+        # instead of producing an operator error.
+        try:
+            if not bpy.ops.screen.repeat_last.poll():
+                return {'CANCELLED'}
+            bpy.ops.screen.repeat_last()
+        except (AttributeError, RuntimeError):
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     bl_idname="VIEW3D_MT_touchscreen_fill"; bl_label="Fill"
