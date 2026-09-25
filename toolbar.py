@@ -255,16 +255,8 @@ class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        layout.operator(
-            "mesh.fill",
-            text="Fill"
-        )
-
-        layout.operator(
-            "mesh.fill_grid",
-            text="Grid Fill"
-        )
-
+        layout.operator("mesh.fill", text="Fill")
+        layout.operator("mesh.fill_grid", text="Grid Fill")
         layout.operator(
             "mesh.bridge_edge_loops",
             text="Bridge Edge Loops"
@@ -388,57 +380,571 @@ class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
 
 
 # ============================================================
-# SHORTEST PATH
+# UNWRAP
 # ============================================================
 
-class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
-    bl_idname = "view3d.touchscreen_shortest_path"
-    bl_label = "Shortest Path"
+class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_unwrap"
+    bl_label = "Unwrap"
 
-    @classmethod
-    def poll(cls, context):
-        return (
-            context.mode == 'EDIT_MESH'
-            and context.active_object is not None
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator(
+            "uv.unwrap",
+            text="Unwrap"
         )
 
+        layout.operator(
+            "uv.smart_project",
+            text="Smart UV Project"
+        )
+
+        layout.operator(
+            "uv.project_from_view",
+            text="Project From View"
+        )
+
+
+# ============================================================
+# UV MENU
+# ============================================================
+
+class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_uv"
+    bl_label = "UV"
+
+    def draw(self, context):
+        layout = self.layout
+
+        # ----------------------------------------------------
+        # MARK SEAM
+        # ----------------------------------------------------
+
+        layout.operator(
+            "uv.mark_seam",
+            text="Mark Seam"
+        )
+
+        # ----------------------------------------------------
+        # CLEAR SEAM
+        # ----------------------------------------------------
+
+        layout.operator(
+            "view3d.touchscreen_clear_seam",
+            text="Clear Seam"
+        )
+
+        # ----------------------------------------------------
+        # UNWRAP
+        # ----------------------------------------------------
+
+        layout.menu(
+            "VIEW3D_MT_touchscreen_unwrap",
+            text="Unwrap"
+        )
+
+
+class VIEW3D_OT_uv_menu(bpy.types.Operator):
+    bl_idname = "view3d.uv_menu"
+    bl_label = "UV"
+
     def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_uv"
+        )
+        return {'FINISHED'}
 
-        if not context.scene.touchscreen_shortest_path:
-            return {'CANCELLED'}
 
-        try:
-            return bpy.ops.mesh.shortest_path_pick(
-                'INVOKE_DEFAULT',
-                edge_mode='SELECT'
+# ============================================================
+# TOOLBAR LAYOUT
+# ============================================================
+
+def _toolbar_layout_mode(context):
+
+    try:
+        system = bpy.context.preferences.system
+        region = context.region
+        view2d = region.view2d
+
+        view2d_scale = (
+            view2d.region_to_view(1.0, 0.0)[0]
+            -
+            view2d.region_to_view(0.0, 0.0)[0]
+        )
+
+        width_scale = (
+            region.width *
+            view2d_scale /
+            system.ui_scale
+        )
+
+    except (
+        AttributeError,
+        RuntimeError,
+        ZeroDivisionError
+    ):
+        width_scale = context.region.width
+
+    if width_scale > 120.0:
+        return 1, True
+
+    if width_scale > 80.0:
+        return 2, False
+
+    return 1, False
+
+
+def _draw_button(layout, item, show_text):
+
+    operator, icon, text, props = item
+
+    button = layout.operator(
+        operator,
+        text=text if show_text else '',
+        icon=icon
+    )
+
+    for key, value in props.items():
+        setattr(button, key, value)
+
+
+def _draw_group(layout, items, columns, show_text):
+
+    if columns == 2 and not show_text:
+
+        row = layout.row(align=True)
+        row.scale_x = 2.0
+        row.scale_y = 2.0
+
+        for item in items:
+            _draw_button(
+                row,
+                item,
+                False
             )
 
-        except (RuntimeError, AttributeError):
-            return {'CANCELLED'}
+    else:
+
+        column = layout.column(align=True)
+        column.scale_y = 2.0
+
+        for item in items:
+            _draw_button(
+                column,
+                item,
+                show_text
+            )
+
+
+def _separator(layout):
+    layout.separator()
 
 
 # ============================================================
-# SHORTEST PATH BOOLEAN UPDATE
+# MAIN TOOLBAR
 # ============================================================
 
-def touchscreen_shortest_path_update(self, context):
+def draw_toolbar(self, context):
 
-    # When enabled, immediately activate Blender's
-    # native Shortest Path operator.
-    if self.touchscreen_shortest_path:
+    layout = self.layout
+    mode = context.mode
 
-        if (
-            context.mode == 'EDIT_MESH'
-            and context.active_object is not None
-        ):
-            try:
-                bpy.ops.mesh.shortest_path_pick(
-                    'INVOKE_DEFAULT',
-                    edge_mode='SELECT'
+    columns, show_text = _toolbar_layout_mode(context)
+
+    # --------------------------------------------------------
+    # OBJECT MODE
+    # --------------------------------------------------------
+
+    if mode == 'OBJECT':
+
+        groups = [
+            [
+                (
+                    'view3d.delete_menu',
+                    'TRASH',
+                    'Delete',
+                    {}
+                ),
+                (
+                    'object.select_all',
+                    'SCENE_DATA',
+                    'Select All',
+                    {'action': 'SELECT'}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.duplicate_menu',
+                    'ONIONSKIN_ON',
+                    'Duplicate',
+                    {}
+                ),
+                (
+                    'view3d.favorites_menu',
+                    'SOLO_OFF',
+                    'Quick Favorites',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_join',
+                    'ADD',
+                    'Join',
+                    {}
+                ),
+                (
+                    'view3d.show_hide_menu',
+                    'HIDE_OFF',
+                    'Show/Hide',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_repeat_last',
+                    'RECOVER_LAST',
+                    'Repeat Last',
+                    {}
+                ),
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
+    # EDIT MESH
+    # --------------------------------------------------------
+
+    elif mode == 'EDIT_MESH':
+
+        groups = [
+            [
+                (
+                    'view3d.delete_menu',
+                    'TRASH',
+                    'Delete',
+                    {}
+                ),
+                (
+                    'mesh.select_all',
+                    'SCENE_DATA',
+                    'Select All',
+                    {'action': 'SELECT'}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.uv_menu',
+                    'MOD_UVPROJECT',
+                    'UV',
+                    {}
+                ),
+                (
+                    'view3d.favorites_menu',
+                    'SOLO_OFF',
+                    'Quick Favorites',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.fill_menu',
+                    'MESH_GRID',
+                    'Fill',
+                    {}
+                ),
+                (
+                    'view3d.separate_menu',
+                    'RESTRICT_COLOR_OFF',
+                    'Separate',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_repeat_last',
+                    'RECOVER_LAST',
+                    'Repeat Last',
+                    {}
+                ),
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
+    # EDIT CURVE / ARMATURE
+    # --------------------------------------------------------
+
+    elif mode in {
+        'EDIT_CURVE',
+        'EDIT_ARMATURE'
+    }:
+
+        select = (
+            'curve.select_all'
+            if mode == 'EDIT_CURVE'
+            else 'armature.select_all'
+        )
+
+        groups = [
+            [
+                (
+                    'view3d.delete_menu',
+                    'TRASH',
+                    'Delete',
+                    {}
+                ),
+                (
+                    select,
+                    'SCENE_DATA',
+                    'Select All',
+                    {'action': 'SELECT'}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_repeat_last',
+                    'RECOVER_LAST',
+                    'Repeat Last',
+                    {}
+                ),
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
+    # SCULPT / PAINT
+    # --------------------------------------------------------
+
+    elif mode in {
+        'SCULPT',
+        'PAINT_VERTEX',
+        'PAINT_WEIGHT',
+        'PAINT_TEXTURE'
+    }:
+
+        groups = [
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    else:
+        return
+
+    # --------------------------------------------------------
+    # DRAW GROUPS
+    # --------------------------------------------------------
+
+    for index, group in enumerate(groups):
+
+        if len(group) == 1:
+
+            if columns == 2 and not show_text:
+
+                grid = layout.grid_flow(
+                    row_major=True,
+                    columns=2,
+                    even_columns=True,
+                    even_rows=False,
+                    align=True
                 )
-            except (RuntimeError, AttributeError):
-                pass
+
+                grid.scale_y = 2.0
+
+                _draw_button(
+                    grid,
+                    group[0],
+                    False
+                )
+
+            else:
+
+                column = layout.column(
+                    align=True
+                )
+
+                column.scale_y = 2.0
+
+                _draw_button(
+                    column,
+                    group[0],
+                    show_text
+                )
+
+        else:
+
+            _draw_group(
+                layout,
+                group,
+                columns,
+                show_text
+            )
+
+        if index != len(groups) - 1:
+            _separator(layout)
 
 
-# =====================================================
+# ============================================================
+# REGISTER
+# ============================================================
+
+CLASSES = (
+    VIEW3D_OT_simple_delete,
+    VIEW3D_OT_delete_menu,
+
+    VIEW3D_OT_simple_duplicate,
+    VIEW3D_OT_simple_duplicate_linked,
+    VIEW3D_MT_touchscreen_duplicate,
+    VIEW3D_OT_duplicate_menu,
+
+    VIEW3D_MT_touchscreen_favorites,
+    VIEW3D_OT_favorites_menu,
+
+    VIEW3D_OT_simple_join,
+
+    VIEW3D_OT_simple_undo,
+    VIEW3D_OT_simple_redo,
+    VIEW3D_OT_simple_undo_history,
+    VIEW3D_OT_simple_repeat_last,
+
+    VIEW3D_MT_touchscreen_fill,
+    VIEW3D_OT_fill_menu,
+
+    VIEW3D_MT_touchscreen_separate,
+    VIEW3D_OT_separate_menu,
+
+    VIEW3D_MT_touchscreen_show_hide,
+    VIEW3D_OT_show_hide_menu,
+
+    VIEW3D_OT_touchscreen_clear_seam,
+    VIEW3D_MT_touchscreen_unwrap,
+
+    VIEW3D_MT_touchscreen_uv,
+    VIEW3D_OT_uv_menu,
+)
+
+
+# ============================================================
+# REGISTER / UNREGISTER
+# ============================================================
+
+def register():
+
+    for cls in CLASSES:
+        try:
+            bpy.utils.register_class(cls)
+        except ValueError:
+            pass
+
+    try:
+        bpy.types.VIEW3D_PT_tools_active.append(
+            draw_toolbar
+        )
+    except Exception:
+        pass
+
+
+def unregister():
+
+    try:
+        bpy.types.VIEW3D_PT_tools_active.remove(
+            draw_toolbar
+        )
+    except Exception:
+        pass
+
+    for cls in reversed(CLASSES):
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            pass
 
