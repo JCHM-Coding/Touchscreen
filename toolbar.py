@@ -32,16 +32,12 @@ class VIEW3D_OT_simple_delete(bpy.types.Operator):
         try:
             if context.mode == 'OBJECT':
                 bpy.ops.object.delete()
-
             elif context.mode == 'EDIT_MESH':
                 bpy.ops.mesh.delete(type='VERT')
-
             elif context.mode == 'EDIT_CURVE':
                 bpy.ops.curve.delete()
-
             elif context.mode == 'EDIT_ARMATURE':
                 bpy.ops.armature.delete()
-
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
@@ -132,9 +128,6 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        # Blender native Quick Favorites.
-        # Nothing is injected here so users can add/remove
-        # favorites normally.
         self.layout.menu_contents("SCREEN_MT_user_menu")
 
 
@@ -262,16 +255,8 @@ class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        layout.operator(
-            "mesh.fill",
-            text="Fill"
-        )
-
-        layout.operator(
-            "mesh.fill_grid",
-            text="Grid Fill"
-        )
-
+        layout.operator("mesh.fill", text="Fill")
+        layout.operator("mesh.fill_grid", text="Grid Fill")
         layout.operator(
             "mesh.bridge_edge_loops",
             text="Bridge Edge Loops"
@@ -371,7 +356,7 @@ class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
 
 
 # ============================================================
-# UV - CLEAR SEAM
+# CLEAR SEAM
 # ============================================================
 
 class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
@@ -395,12 +380,21 @@ class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
 
 
 # ============================================================
-# UV - SHORTEST PATH
+# SHORTEST PATH
 # ============================================================
 
 class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
     bl_idname = "view3d.touchscreen_shortest_path"
     bl_label = "Shortest Path"
+
+    use_ctrl_left_click: bpy.props.BoolProperty(
+        name="Ctrl + Left Click",
+        description=(
+            "Use the Ctrl + Left Click style of "
+            "Shortest Path selection"
+        ),
+        default=True
+    )
 
     @classmethod
     def poll(cls, context):
@@ -410,25 +404,32 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
         )
 
     def invoke(self, context, event):
+
         try:
+            # Native Blender interactive shortest-path operator.
+            # INVOKE_DEFAULT is important because this operator
+            # needs the View3D interaction context.
             return bpy.ops.mesh.shortest_path_pick(
                 'INVOKE_DEFAULT',
                 edge_mode='SELECT'
             )
+
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
     def execute(self, context):
+
         try:
             return bpy.ops.mesh.shortest_path_pick(
                 edge_mode='SELECT'
             )
+
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
 
 # ============================================================
-# UV - EDGE TAG SELECT
+# EDGE TAG SELECT
 # ============================================================
 
 class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
@@ -476,7 +477,7 @@ class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
 
 
 # ============================================================
-# UV - UNWRAP
+# UNWRAP
 # ============================================================
 
 class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
@@ -513,31 +514,60 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # 1. MARK SEAM
+        # ----------------------------------------------------
+        # MARK SEAM
+        # ----------------------------------------------------
+
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
-        # 2. CLEAR SEAM
+        # ----------------------------------------------------
+        # CLEAR SEAM
+        # ----------------------------------------------------
+
         layout.operator(
             "view3d.touchscreen_clear_seam",
             text="Clear Seam"
         )
 
-        # 3. SHORTEST PATH
-        layout.operator(
+        # ----------------------------------------------------
+        # SHORTEST PATH
+        # ----------------------------------------------------
+
+        op = layout.operator(
             "view3d.touchscreen_shortest_path",
             text="Shortest Path"
         )
 
-        # 4. EDGE TAG SELECT
+        op.use_ctrl_left_click = (
+            context.scene.touchscreen_shortest_path_ctrl
+        )
+
+        # ----------------------------------------------------
+        # OPTION
+        # ----------------------------------------------------
+
+        layout.prop(
+            context.scene,
+            "touchscreen_shortest_path_ctrl",
+            text="Ctrl + Left Click"
+        )
+
+        # ----------------------------------------------------
+        # EDGE TAG SELECT
+        # ----------------------------------------------------
+
         layout.menu(
             "VIEW3D_MT_touchscreen_edge_tag",
             text="Edge Tag Select"
         )
 
-        # 5. UNWRAP
+        # ----------------------------------------------------
+        # UNWRAP
+        # ----------------------------------------------------
+
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
             text="Unwrap"
@@ -553,6 +583,14 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
             name="VIEW3D_MT_touchscreen_uv"
         )
         return {'FINISHED'}
+
+
+# ============================================================
+# SHORTEST PATH PROPERTY
+# ============================================================
+
+def _shortest_path_update(self, context):
+    pass
 
 
 # ============================================================
@@ -1015,6 +1053,10 @@ CLASSES = (
 )
 
 
+# ============================================================
+# REGISTER / UNREGISTER
+# ============================================================
+
 def register():
 
     for cls in CLASSES:
@@ -1022,6 +1064,22 @@ def register():
             bpy.utils.register_class(cls)
         except ValueError:
             pass
+
+    if not hasattr(
+        bpy.types.Scene,
+        "touchscreen_shortest_path_ctrl"
+    ):
+        bpy.types.Scene.touchscreen_shortest_path_ctrl = (
+            bpy.props.BoolProperty(
+                name="Ctrl + Left Click",
+                description=(
+                    "Use Ctrl + Left Click behavior "
+                    "for Shortest Path"
+                ),
+                default=True,
+                update=_shortest_path_update
+            )
+        )
 
     try:
         bpy.types.VIEW3D_PT_tools_active.append(
@@ -1040,9 +1098,15 @@ def unregister():
     except Exception:
         pass
 
-    for cls in reversed(CLASSES):
+    if hasattr(
+        bpy.types.Scene,
+        "touchscreen_shortest_path_ctrl"
+    ):
+        del bpy.types.Scene.touchscreen_shortest_path_ctrl
 
+    for cls in reversed(CLASSES):
         try:
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
+
