@@ -32,12 +32,16 @@ class VIEW3D_OT_simple_delete(bpy.types.Operator):
         try:
             if context.mode == 'OBJECT':
                 bpy.ops.object.delete()
+
             elif context.mode == 'EDIT_MESH':
                 bpy.ops.mesh.delete(type='VERT')
+
             elif context.mode == 'EDIT_CURVE':
                 bpy.ops.curve.delete()
+
             elif context.mode == 'EDIT_ARMATURE':
                 bpy.ops.armature.delete()
+
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
@@ -128,8 +132,9 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        # Blender's native Quick Favorites menu.
-        # Nothing is injected, so add/remove works normally.
+        # Blender native Quick Favorites.
+        # Nothing is injected here so users can add/remove
+        # favorites normally.
         self.layout.menu_contents("SCREEN_MT_user_menu")
 
 
@@ -186,6 +191,7 @@ class VIEW3D_OT_simple_undo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.undo()
+
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -209,6 +215,7 @@ class VIEW3D_OT_simple_redo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.redo()
+
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -364,6 +371,30 @@ class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
 
 
 # ============================================================
+# UV - CLEAR SEAM
+# ============================================================
+
+class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
+    bl_idname = "view3d.touchscreen_clear_seam"
+    bl_label = "Clear Seam"
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
+        )
+
+    def execute(self, context):
+        try:
+            bpy.ops.mesh.mark_seam(clear=True)
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+# ============================================================
 # UV - SHORTEST PATH
 # ============================================================
 
@@ -380,20 +411,18 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
     def invoke(self, context, event):
         try:
-            bpy.ops.mesh.shortest_path_pick(
+            return bpy.ops.mesh.shortest_path_pick(
                 'INVOKE_DEFAULT',
                 edge_mode='SELECT'
             )
-            return {'FINISHED'}
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
     def execute(self, context):
         try:
-            bpy.ops.mesh.shortest_path_pick(
+            return bpy.ops.mesh.shortest_path_pick(
                 edge_mode='SELECT'
             )
-            return {'FINISHED'}
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
@@ -484,31 +513,31 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # 1. Mark Seam
+        # 1. MARK SEAM
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
-        # 2. Clear Seam
+        # 2. CLEAR SEAM
         layout.operator(
-            "uv.clear_seam",
+            "view3d.touchscreen_clear_seam",
             text="Clear Seam"
         )
 
-        # 3. Shortest Path
+        # 3. SHORTEST PATH
         layout.operator(
             "view3d.touchscreen_shortest_path",
             text="Shortest Path"
         )
 
-        # 4. Edge Tag Select
+        # 4. EDGE TAG SELECT
         layout.menu(
             "VIEW3D_MT_touchscreen_edge_tag",
             text="Edge Tag Select"
         )
 
-        # 5. Unwrap
+        # 5. UNWRAP
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
             text="Unwrap"
@@ -531,6 +560,7 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
 # ============================================================
 
 def _toolbar_layout_mode(context):
+
     try:
         system = bpy.context.preferences.system
         region = context.region
@@ -565,6 +595,7 @@ def _toolbar_layout_mode(context):
 
 
 def _draw_button(layout, item, show_text):
+
     operator, icon, text, props = item
 
     button = layout.operator(
@@ -973,9 +1004,10 @@ CLASSES = (
     VIEW3D_MT_touchscreen_show_hide,
     VIEW3D_OT_show_hide_menu,
 
+    VIEW3D_OT_touchscreen_clear_seam,
     VIEW3D_OT_touchscreen_shortest_path,
-    VIEW3D_MT_touchscreen_edge_tag,
 
+    VIEW3D_MT_touchscreen_edge_tag,
     VIEW3D_MT_touchscreen_unwrap,
 
     VIEW3D_MT_touchscreen_uv,
