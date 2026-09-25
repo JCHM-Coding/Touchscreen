@@ -1,4 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Touchscreen - Toolbar
+# Copyright (C) 2026
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 
 import bpy
 
@@ -120,11 +128,6 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        # Blender's REAL Quick Favorites menu.
-        #
-        # Nothing is added here manually.
-        # This preserves Blender's native add/remove behavior.
-
         self.layout.menu_contents("SCREEN_MT_user_menu")
 
 
@@ -181,6 +184,7 @@ class VIEW3D_OT_simple_undo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.undo()
+
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -204,6 +208,7 @@ class VIEW3D_OT_simple_redo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.redo()
+
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -250,16 +255,8 @@ class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        layout.operator(
-            "mesh.fill",
-            text="Fill"
-        )
-
-        layout.operator(
-            "mesh.fill_grid",
-            text="Grid Fill"
-        )
-
+        layout.operator("mesh.fill", text="Fill")
+        layout.operator("mesh.fill_grid", text="Grid Fill")
         layout.operator(
             "mesh.bridge_edge_loops",
             text="Bridge Edge Loops"
@@ -359,7 +356,31 @@ class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
 
 
 # ============================================================
-# UV - ORIGINAL VERSION + NEW OPTIONS AT THE END
+# CLEAR SEAM
+# ============================================================
+
+class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
+    bl_idname = "view3d.touchscreen_clear_seam"
+    bl_label = "Clear Seam"
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
+        )
+
+    def execute(self, context):
+        try:
+            bpy.ops.mesh.mark_seam(clear=True)
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+# ============================================================
+# UNWRAP
 # ============================================================
 
 class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
@@ -369,7 +390,6 @@ class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ORIGINAL UV CONTENT
         layout.operator(
             "uv.unwrap",
             text="Unwrap"
@@ -386,92 +406,9 @@ class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
         )
 
 
-# ------------------------------------------------------------
-# LIVE UNWRAP
-# ------------------------------------------------------------
-
-class VIEW3D_OT_touchscreen_toggle_live_unwrap(
-        bpy.types.Operator):
-
-    bl_idname = "view3d.touchscreen_toggle_live_unwrap"
-    bl_label = "Live Unwrap"
-
-    def execute(self, context):
-
-        found = False
-
-        # Live Unwrap belongs to the UV Editor.
-        # Search all open screens/areas so this also works
-        # when the current area is the 3D View.
-
-        for window in bpy.context.window_manager.windows:
-
-            screen = window.screen
-
-            if not screen:
-                continue
-
-            for area in screen.areas:
-
-                if area.type != 'IMAGE_EDITOR':
-                    continue
-
-                space = area.spaces.active
-
-                try:
-                    space.use_live_unwrap = (
-                        not space.use_live_unwrap
-                    )
-                    found = True
-                except AttributeError:
-                    pass
-
-        if not found:
-            self.report(
-                {'WARNING'},
-                "No UV Editor available for Live Unwrap"
-            )
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
-
-
-# ------------------------------------------------------------
-# SHORTEST PATH
-# ------------------------------------------------------------
-
-class VIEW3D_OT_touchscreen_toggle_shortest_path(
-        bpy.types.Operator):
-
-    bl_idname = "view3d.touchscreen_toggle_shortest_path"
-    bl_label = "Shortest Path"
-
-    enabled: bpy.props.BoolProperty(
-        name="Shortest Path",
-        default=False
-    )
-
-    def execute(self, context):
-
-        # The property is kept on the operator so the setting
-        # can be switched from the UV menu without creating
-        # another toolbar button.
-        #
-        # The actual Blender shortest-path selection remains
-        # native and is not replaced by a custom selection system.
-
-        self.report(
-            {'INFO'},
-            "Shortest Path: " +
-            ("ON" if self.enabled else "OFF")
-        )
-
-        return {'FINISHED'}
-
-
-# ------------------------------------------------------------
+# ============================================================
 # UV MENU
-# ------------------------------------------------------------
+# ============================================================
 
 class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_uv"
@@ -480,38 +417,32 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ORIGINAL ORDER
+        # ----------------------------------------------------
+        # MARK SEAM
+        # ----------------------------------------------------
+
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
+        # ----------------------------------------------------
+        # CLEAR SEAM
+        # ----------------------------------------------------
+
         layout.operator(
-            "uv.clear_seam",
+            "view3d.touchscreen_clear_seam",
             text="Clear Seam"
         )
+
+        # ----------------------------------------------------
+        # UNWRAP
+        # ----------------------------------------------------
 
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
             text="Unwrap"
         )
-
-        # NEW OPTIONS AT THE END
-        layout.separator()
-
-        layout.operator(
-            "view3d.touchscreen_toggle_live_unwrap",
-            text="Live Unwrap",
-            icon='UV_SYNC_SELECT'
-        )
-
-        op = layout.operator(
-            "view3d.touchscreen_toggle_shortest_path",
-            text="Shortest Path",
-            icon='SELECT_SET'
-        )
-
-        op.enabled = True
 
 
 class VIEW3D_OT_uv_menu(bpy.types.Operator):
@@ -526,7 +457,7 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
 
 
 # ============================================================
-# TOOLBAR SIZE / LAYOUT
+# TOOLBAR LAYOUT
 # ============================================================
 
 def _toolbar_layout_mode(context):
@@ -583,7 +514,6 @@ def _draw_group(layout, items, columns, show_text):
     if columns == 2 and not show_text:
 
         row = layout.row(align=True)
-
         row.scale_x = 2.0
         row.scale_y = 2.0
 
@@ -597,7 +527,6 @@ def _draw_group(layout, items, columns, show_text):
     else:
 
         column = layout.column(align=True)
-
         column.scale_y = 2.0
 
         for item in items:
@@ -630,7 +559,6 @@ def draw_toolbar(self, context):
     if mode == 'OBJECT':
 
         groups = [
-
             [
                 (
                     'view3d.delete_menu',
@@ -714,7 +642,6 @@ def draw_toolbar(self, context):
     elif mode == 'EDIT_MESH':
 
         groups = [
-
             [
                 (
                     'view3d.delete_menu',
@@ -795,7 +722,10 @@ def draw_toolbar(self, context):
     # EDIT CURVE / ARMATURE
     # --------------------------------------------------------
 
-    elif mode in {'EDIT_CURVE', 'EDIT_ARMATURE'}:
+    elif mode in {
+        'EDIT_CURVE',
+        'EDIT_ARMATURE'
+    }:
 
         select = (
             'curve.select_all'
@@ -804,7 +734,6 @@ def draw_toolbar(self, context):
         )
 
         groups = [
-
             [
                 (
                     'view3d.delete_menu',
@@ -863,7 +792,6 @@ def draw_toolbar(self, context):
     }:
 
         groups = [
-
             [
                 (
                     'view3d.simple_undo',
@@ -950,7 +878,6 @@ def draw_toolbar(self, context):
 # ============================================================
 
 CLASSES = (
-
     VIEW3D_OT_simple_delete,
     VIEW3D_OT_delete_menu,
 
@@ -978,15 +905,17 @@ CLASSES = (
     VIEW3D_MT_touchscreen_show_hide,
     VIEW3D_OT_show_hide_menu,
 
+    VIEW3D_OT_touchscreen_clear_seam,
     VIEW3D_MT_touchscreen_unwrap,
-
-    VIEW3D_OT_touchscreen_toggle_live_unwrap,
-    VIEW3D_OT_touchscreen_toggle_shortest_path,
 
     VIEW3D_MT_touchscreen_uv,
     VIEW3D_OT_uv_menu,
 )
 
+
+# ============================================================
+# REGISTER / UNREGISTER
+# ============================================================
 
 def register():
 
@@ -1014,8 +943,8 @@ def unregister():
         pass
 
     for cls in reversed(CLASSES):
-
         try:
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
+
