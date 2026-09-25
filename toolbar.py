@@ -1,4 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Touchscreen - Toolbar
+# Copyright (C) 2026
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
 
 import bpy
 
@@ -120,11 +128,8 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        # Blender's REAL Quick Favorites menu.
-        #
-        # Nothing is added here manually.
-        # This preserves Blender's native add/remove behavior.
-
+        # Use Blender's native Quick Favorites menu.
+        # This preserves the native add/remove behavior.
         self.layout.menu_contents("SCREEN_MT_user_menu")
 
 
@@ -359,7 +364,7 @@ class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
 
 
 # ============================================================
-# UV - ORIGINAL VERSION + NEW OPTIONS AT THE END
+# UV - UNWRAP
 # ============================================================
 
 class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
@@ -369,7 +374,6 @@ class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ORIGINAL UV CONTENT
         layout.operator(
             "uv.unwrap",
             text="Unwrap"
@@ -386,92 +390,59 @@ class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
         )
 
 
-# ------------------------------------------------------------
-# LIVE UNWRAP
-# ------------------------------------------------------------
+# ============================================================
+# EDGE TAG SELECT
+# ============================================================
 
-class VIEW3D_OT_touchscreen_toggle_live_unwrap(
-        bpy.types.Operator):
+class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_edge_tag"
+    bl_label = "Edge Tag Select"
 
-    bl_idname = "view3d.touchscreen_toggle_live_unwrap"
-    bl_label = "Live Unwrap"
+    def draw(self, context):
+        layout = self.layout
 
-    def execute(self, context):
-
-        found = False
-
-        # Live Unwrap belongs to the UV Editor.
-        # Search all open screens/areas so this also works
-        # when the current area is the 3D View.
-
-        for window in bpy.context.window_manager.windows:
-
-            screen = window.screen
-
-            if not screen:
-                continue
-
-            for area in screen.areas:
-
-                if area.type != 'IMAGE_EDITOR':
-                    continue
-
-                space = area.spaces.active
-
-                try:
-                    space.use_live_unwrap = (
-                        not space.use_live_unwrap
-                    )
-                    found = True
-                except AttributeError:
-                    pass
-
-        if not found:
-            self.report(
-                {'WARNING'},
-                "No UV Editor available for Live Unwrap"
-            )
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
-
-
-# ------------------------------------------------------------
-# SHORTEST PATH
-# ------------------------------------------------------------
-
-class VIEW3D_OT_touchscreen_toggle_shortest_path(
-        bpy.types.Operator):
-
-    bl_idname = "view3d.touchscreen_toggle_shortest_path"
-    bl_label = "Shortest Path"
-
-    enabled: bpy.props.BoolProperty(
-        name="Shortest Path",
-        default=False
-    )
-
-    def execute(self, context):
-
-        # The property is kept on the operator so the setting
-        # can be switched from the UV menu without creating
-        # another toolbar button.
-        #
-        # The actual Blender shortest-path selection remains
-        # native and is not replaced by a custom selection system.
-
-        self.report(
-            {'INFO'},
-            "Shortest Path: " +
-            ("ON" if self.enabled else "OFF")
+        # Shortest Path with Edge Tag options.
+        layout.operator(
+            "mesh.shortest_path_pick",
+            text="Pick Shortest Path"
         )
 
-        return {'FINISHED'}
+        layout.separator()
+
+        op = layout.operator(
+            "mesh.shortest_path_pick",
+            text="Seam"
+        )
+        op.edge_mode = 'SEAM'
+
+        op = layout.operator(
+            "mesh.shortest_path_pick",
+            text="Sharp"
+        )
+        op.edge_mode = 'SHARP'
+
+        op = layout.operator(
+            "mesh.shortest_path_pick",
+            text="Crease"
+        )
+        op.edge_mode = 'CREASE'
+
+        op = layout.operator(
+            "mesh.shortest_path_pick",
+            text="Bevel"
+        )
+        op.edge_mode = 'BEVEL'
+
+        op = layout.operator(
+            "mesh.shortest_path_pick",
+            text="Freestyle"
+        )
+        op.edge_mode = 'FREESTYLE'
 
 
-# ------------------------------------------------------------
+# ============================================================
 # UV MENU
-# ------------------------------------------------------------
+# ============================================================
 
 class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_uv"
@@ -480,7 +451,7 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ORIGINAL ORDER
+        # Original UV options
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
@@ -491,27 +462,27 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
             text="Clear Seam"
         )
 
+        # Edge Tag Select dropdown
+        layout.menu(
+            "VIEW3D_MT_touchscreen_edge_tag",
+            text="Edge Tag Select"
+        )
+
+        # Original Unwrap dropdown
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
             text="Unwrap"
         )
 
-        # NEW OPTIONS AT THE END
         layout.separator()
 
+        # Shortest Path toggle/button remains at the end.
+        # No Live Unwrap.
         layout.operator(
-            "view3d.touchscreen_toggle_live_unwrap",
-            text="Live Unwrap",
-            icon='UV_SYNC_SELECT'
-        )
-
-        op = layout.operator(
-            "view3d.touchscreen_toggle_shortest_path",
+            "mesh.shortest_path_pick",
             text="Shortest Path",
             icon='SELECT_SET'
         )
-
-        op.enabled = True
 
 
 class VIEW3D_OT_uv_menu(bpy.types.Operator):
@@ -526,7 +497,7 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
 
 
 # ============================================================
-# TOOLBAR SIZE / LAYOUT
+# TOOLBAR LAYOUT
 # ============================================================
 
 def _toolbar_layout_mode(context):
@@ -795,7 +766,10 @@ def draw_toolbar(self, context):
     # EDIT CURVE / ARMATURE
     # --------------------------------------------------------
 
-    elif mode in {'EDIT_CURVE', 'EDIT_ARMATURE'}:
+    elif mode in {
+        'EDIT_CURVE',
+        'EDIT_ARMATURE'
+    }:
 
         select = (
             'curve.select_all'
@@ -980,8 +954,7 @@ CLASSES = (
 
     VIEW3D_MT_touchscreen_unwrap,
 
-    VIEW3D_OT_touchscreen_toggle_live_unwrap,
-    VIEW3D_OT_touchscreen_toggle_shortest_path,
+    VIEW3D_MT_touchscreen_edge_tag,
 
     VIEW3D_MT_touchscreen_uv,
     VIEW3D_OT_uv_menu,
