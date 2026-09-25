@@ -1,4 +1,3 @@
-```python
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Touchscreen - Toolbar
@@ -442,4 +441,4 @@ def touchscreen_shortest_path_update(self, context):
 
 
 # =====================================================
-```
+
