@@ -32,12 +32,16 @@ class VIEW3D_OT_simple_delete(bpy.types.Operator):
         try:
             if context.mode == 'OBJECT':
                 bpy.ops.object.delete()
+
             elif context.mode == 'EDIT_MESH':
                 bpy.ops.mesh.delete(type='VERT')
+
             elif context.mode == 'EDIT_CURVE':
                 bpy.ops.curve.delete()
+
             elif context.mode == 'EDIT_ARMATURE':
                 bpy.ops.armature.delete()
+
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
@@ -50,6 +54,7 @@ class VIEW3D_OT_delete_menu(bpy.types.Operator):
     bl_label = "Delete"
 
     def execute(self, context):
+
         menus = {
             'EDIT_MESH': 'VIEW3D_MT_edit_mesh_delete',
             'EDIT_CURVE': 'VIEW3D_MT_edit_curve_delete',
@@ -128,8 +133,8 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        # Use Blender's native Quick Favorites menu.
-        # This preserves the native add/remove behavior.
+        # Native Blender Quick Favorites.
+        # This keeps adding/removing favorites working normally.
         self.layout.menu_contents("SCREEN_MT_user_menu")
 
 
@@ -186,6 +191,7 @@ class VIEW3D_OT_simple_undo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.undo()
+
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -209,6 +215,7 @@ class VIEW3D_OT_simple_redo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.redo()
+
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -364,34 +371,40 @@ class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
 
 
 # ============================================================
-# UV - UNWRAP
+# UV - SHORTEST PATH
 # ============================================================
 
-class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_unwrap"
-    bl_label = "Unwrap"
+class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
+    bl_idname = "view3d.touchscreen_shortest_path"
+    bl_label = "Shortest Path"
 
-    def draw(self, context):
-        layout = self.layout
-
-        layout.operator(
-            "uv.unwrap",
-            text="Unwrap"
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
         )
 
-        layout.operator(
-            "uv.smart_project",
-            text="Smart UV Project"
-        )
+    def invoke(self, context, event):
+        try:
+            return bpy.ops.mesh.shortest_path_pick(
+                'INVOKE_DEFAULT',
+                edge_mode='SELECT'
+            )
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
 
-        layout.operator(
-            "uv.project_from_view",
-            text="Project From View"
-        )
+    def execute(self, context):
+        try:
+            return bpy.ops.mesh.shortest_path_pick(
+                edge_mode='SELECT'
+            )
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
 
 
 # ============================================================
-# EDGE TAG SELECT
+# UV - EDGE TAG SELECT
 # ============================================================
 
 class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
@@ -401,13 +414,13 @@ class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Shortest Path with Edge Tag options.
-        layout.operator(
+        # Blender's native shortest-path operator.
+        # Edge Tag determines which edge attribute is used.
+        op = layout.operator(
             "mesh.shortest_path_pick",
-            text="Pick Shortest Path"
+            text="Select"
         )
-
-        layout.separator()
+        op.edge_mode = 'SELECT'
 
         op = layout.operator(
             "mesh.shortest_path_pick",
@@ -441,6 +454,33 @@ class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
 
 
 # ============================================================
+# UV - UNWRAP
+# ============================================================
+
+class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_unwrap"
+    bl_label = "Unwrap"
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator(
+            "uv.unwrap",
+            text="Unwrap"
+        )
+
+        layout.operator(
+            "uv.smart_project",
+            text="Smart UV Project"
+        )
+
+        layout.operator(
+            "uv.project_from_view",
+            text="Project From View"
+        )
+
+
+# ============================================================
 # UV MENU
 # ============================================================
 
@@ -451,37 +491,49 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Original UV options
+        # ----------------------------------------------------
+        # 1. MARK SEAM
+        # ----------------------------------------------------
+
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
+
+        # ----------------------------------------------------
+        # 2. CLEAR SEAM
+        # ----------------------------------------------------
 
         layout.operator(
             "uv.clear_seam",
             text="Clear Seam"
         )
 
-        # Edge Tag Select dropdown
+        # ----------------------------------------------------
+        # 3. SHORTEST PATH
+        # ----------------------------------------------------
+
+        layout.operator(
+            "view3d.touchscreen_shortest_path",
+            text="Shortest Path"
+        )
+
+        # ----------------------------------------------------
+        # 4. EDGE TAG SELECT
+        # ----------------------------------------------------
+
         layout.menu(
             "VIEW3D_MT_touchscreen_edge_tag",
             text="Edge Tag Select"
         )
 
-        # Original Unwrap dropdown
+        # ----------------------------------------------------
+        # 5. UNWRAP
+        # ----------------------------------------------------
+
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
             text="Unwrap"
-        )
-
-        layout.separator()
-
-        # Shortest Path toggle/button remains at the end.
-        # No Live Unwrap.
-        layout.operator(
-            "mesh.shortest_path_pick",
-            text="Shortest Path",
-            icon='SELECT_SET'
         )
 
 
@@ -952,9 +1004,11 @@ CLASSES = (
     VIEW3D_MT_touchscreen_show_hide,
     VIEW3D_OT_show_hide_menu,
 
-    VIEW3D_MT_touchscreen_unwrap,
+    VIEW3D_OT_touchscreen_shortest_path,
 
     VIEW3D_MT_touchscreen_edge_tag,
+
+    VIEW3D_MT_touchscreen_unwrap,
 
     VIEW3D_MT_touchscreen_uv,
     VIEW3D_OT_uv_menu,
