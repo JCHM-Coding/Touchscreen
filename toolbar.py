@@ -32,16 +32,12 @@ class VIEW3D_OT_simple_delete(bpy.types.Operator):
         try:
             if context.mode == 'OBJECT':
                 bpy.ops.object.delete()
-
             elif context.mode == 'EDIT_MESH':
                 bpy.ops.mesh.delete(type='VERT')
-
             elif context.mode == 'EDIT_CURVE':
                 bpy.ops.curve.delete()
-
             elif context.mode == 'EDIT_ARMATURE':
                 bpy.ops.armature.delete()
-
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
@@ -54,7 +50,6 @@ class VIEW3D_OT_delete_menu(bpy.types.Operator):
     bl_label = "Delete"
 
     def execute(self, context):
-
         menus = {
             'EDIT_MESH': 'VIEW3D_MT_edit_mesh_delete',
             'EDIT_CURVE': 'VIEW3D_MT_edit_curve_delete',
@@ -133,8 +128,8 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        # Native Blender Quick Favorites.
-        # This keeps adding/removing favorites working normally.
+        # Blender's native Quick Favorites menu.
+        # Nothing is injected, so add/remove works normally.
         self.layout.menu_contents("SCREEN_MT_user_menu")
 
 
@@ -191,7 +186,6 @@ class VIEW3D_OT_simple_undo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.undo()
-
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -215,7 +209,6 @@ class VIEW3D_OT_simple_redo(bpy.types.Operator):
                 return {'CANCELLED'}
 
             bpy.ops.ed.redo()
-
         except RuntimeError:
             return {'CANCELLED'}
 
@@ -387,18 +380,20 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
     def invoke(self, context, event):
         try:
-            return bpy.ops.mesh.shortest_path_pick(
+            bpy.ops.mesh.shortest_path_pick(
                 'INVOKE_DEFAULT',
                 edge_mode='SELECT'
             )
+            return {'FINISHED'}
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
     def execute(self, context):
         try:
-            return bpy.ops.mesh.shortest_path_pick(
+            bpy.ops.mesh.shortest_path_pick(
                 edge_mode='SELECT'
             )
+            return {'FINISHED'}
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
@@ -414,8 +409,6 @@ class VIEW3D_MT_touchscreen_edge_tag(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Blender's native shortest-path operator.
-        # Edge Tag determines which edge attribute is used.
         op = layout.operator(
             "mesh.shortest_path_pick",
             text="Select"
@@ -491,46 +484,31 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ----------------------------------------------------
-        # 1. MARK SEAM
-        # ----------------------------------------------------
-
+        # 1. Mark Seam
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
-        # ----------------------------------------------------
-        # 2. CLEAR SEAM
-        # ----------------------------------------------------
-
+        # 2. Clear Seam
         layout.operator(
             "uv.clear_seam",
             text="Clear Seam"
         )
 
-        # ----------------------------------------------------
-        # 3. SHORTEST PATH
-        # ----------------------------------------------------
-
+        # 3. Shortest Path
         layout.operator(
             "view3d.touchscreen_shortest_path",
             text="Shortest Path"
         )
 
-        # ----------------------------------------------------
-        # 4. EDGE TAG SELECT
-        # ----------------------------------------------------
-
+        # 4. Edge Tag Select
         layout.menu(
             "VIEW3D_MT_touchscreen_edge_tag",
             text="Edge Tag Select"
         )
 
-        # ----------------------------------------------------
-        # 5. UNWRAP
-        # ----------------------------------------------------
-
+        # 5. Unwrap
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
             text="Unwrap"
@@ -553,7 +531,6 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
 # ============================================================
 
 def _toolbar_layout_mode(context):
-
     try:
         system = bpy.context.preferences.system
         region = context.region
@@ -588,7 +565,6 @@ def _toolbar_layout_mode(context):
 
 
 def _draw_button(layout, item, show_text):
-
     operator, icon, text, props = item
 
     button = layout.operator(
@@ -606,7 +582,6 @@ def _draw_group(layout, items, columns, show_text):
     if columns == 2 and not show_text:
 
         row = layout.row(align=True)
-
         row.scale_x = 2.0
         row.scale_y = 2.0
 
@@ -620,7 +595,6 @@ def _draw_group(layout, items, columns, show_text):
     else:
 
         column = layout.column(align=True)
-
         column.scale_y = 2.0
 
         for item in items:
@@ -653,7 +627,6 @@ def draw_toolbar(self, context):
     if mode == 'OBJECT':
 
         groups = [
-
             [
                 (
                     'view3d.delete_menu',
@@ -737,7 +710,6 @@ def draw_toolbar(self, context):
     elif mode == 'EDIT_MESH':
 
         groups = [
-
             [
                 (
                     'view3d.delete_menu',
@@ -830,7 +802,6 @@ def draw_toolbar(self, context):
         )
 
         groups = [
-
             [
                 (
                     'view3d.delete_menu',
@@ -889,7 +860,6 @@ def draw_toolbar(self, context):
     }:
 
         groups = [
-
             [
                 (
                     'view3d.simple_undo',
@@ -976,7 +946,6 @@ def draw_toolbar(self, context):
 # ============================================================
 
 CLASSES = (
-
     VIEW3D_OT_simple_delete,
     VIEW3D_OT_delete_menu,
 
@@ -1005,7 +974,6 @@ CLASSES = (
     VIEW3D_OT_show_hide_menu,
 
     VIEW3D_OT_touchscreen_shortest_path,
-
     VIEW3D_MT_touchscreen_edge_tag,
 
     VIEW3D_MT_touchscreen_unwrap,
