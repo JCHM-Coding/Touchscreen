@@ -537,6 +537,7 @@ def _draw_group(layout, items, columns, show_text):
             )
 
 
+
 # ============================================================
 # MAIN TOOLBAR
 # ============================================================
@@ -824,17 +825,42 @@ def draw_toolbar(self, context):
 
         if len(group) == 1:
 
-            column = layout.column(
-                align=True
-            )
+            if columns == 2 and not show_text:
 
-            column.scale_y = 2.0
+                # Keep a single button in one real column.
+                # The second column remains empty.
+                row = layout.row(align=True)
 
-            _draw_button(
-                column,
-                group[0],
-                show_text
-            )
+                split = row.split(
+                    factor=0.5,
+                    align=True
+                )
+
+                left = split.column(
+                    align=True
+                )
+
+                left.scale_y = 2.0
+
+                _draw_button(
+                    left,
+                    group[0],
+                    False
+                )
+
+            else:
+
+                column = layout.column(
+                    align=True
+                )
+
+                column.scale_y = 2.0
+
+                _draw_button(
+                    column,
+                    group[0],
+                    show_text
+                )
 
         else:
 
@@ -844,6 +870,7 @@ def draw_toolbar(self, context):
                 columns,
                 show_text
             )
+
 
 # ============================================================
 # REGISTER
