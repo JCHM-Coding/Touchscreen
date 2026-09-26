@@ -845,28 +845,19 @@ def draw_toolbar(self, context):
 
     else:
 
+        # One continuous column, just like the native Blender toolbar.
+        # Draw every button consecutively so there is no gap between groups.
+        column = layout.column(
+            align=True
+        )
+
+        column.scale_y = 2.0
+
         for group in groups:
-
-            if len(group) == 1:
-
-                column = layout.column(
-                    align=True
-                )
-
-                column.scale_y = 2.0
-
+            for item in group:
                 _draw_button(
                     column,
-                    group[0],
-                    show_text
-                )
-
-            else:
-
-                _draw_group(
-                    layout,
-                    group,
-                    columns,
+                    item,
                     show_text
                 )
 
