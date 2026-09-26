@@ -821,34 +821,33 @@ def draw_toolbar(self, context):
     # DRAW GROUPS
     # --------------------------------------------------------
 
-    for index, group in enumerate(groups):
+    if columns == 2 and not show_text:
 
-        if len(group) == 1:
+        # One continuous 2-column grid for the whole toolbar.
+        # This removes the gaps between individual group rows.
+        grid = layout.grid_flow(
+            row_major=True,
+            columns=2,
+            even_columns=True,
+            even_rows=False,
+            align=True
+        )
 
-            if columns == 2 and not show_text:
+        grid.scale_y = 2.0
 
-                # Keep a single button in one real column.
-                # The second column remains empty.
-                row = layout.row(align=True)
-
-                split = row.split(
-                    factor=0.5,
-                    align=True
-                )
-
-                left = split.column(
-                    align=True
-                )
-
-                left.scale_y = 2.0
-
+        for group in groups:
+            for item in group:
                 _draw_button(
-                    left,
-                    group[0],
+                    grid,
+                    item,
                     False
                 )
 
-            else:
+    else:
+
+        for group in groups:
+
+            if len(group) == 1:
 
                 column = layout.column(
                     align=True
@@ -862,14 +861,14 @@ def draw_toolbar(self, context):
                     show_text
                 )
 
-        else:
+            else:
 
-            _draw_group(
-                layout,
-                group,
-                columns,
-                show_text
-            )
+                _draw_group(
+                    layout,
+                    group,
+                    columns,
+                    show_text
+                )
 
 
 # ============================================================
