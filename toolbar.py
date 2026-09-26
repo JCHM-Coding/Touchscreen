@@ -537,10 +537,6 @@ def _draw_group(layout, items, columns, show_text):
             )
 
 
-def _separator(layout):
-    layout.separator()
-
-
 # ============================================================
 # MAIN TOOLBAR
 # ============================================================
@@ -828,37 +824,17 @@ def draw_toolbar(self, context):
 
         if len(group) == 1:
 
-            if columns == 2 and not show_text:
+            column = layout.column(
+                align=True
+            )
 
-                grid = layout.grid_flow(
-                    row_major=True,
-                    columns=2,
-                    even_columns=True,
-                    even_rows=False,
-                    align=True
-                )
+            column.scale_y = 2.0
 
-                grid.scale_y = 2.0
-
-                _draw_button(
-                    grid,
-                    group[0],
-                    False
-                )
-
-            else:
-
-                column = layout.column(
-                    align=True
-                )
-
-                column.scale_y = 2.0
-
-                _draw_button(
-                    column,
-                    group[0],
-                    show_text
-                )
+            _draw_button(
+                column,
+                group[0],
+                show_text
+            )
 
         else:
 
@@ -868,10 +844,6 @@ def draw_toolbar(self, context):
                 columns,
                 show_text
             )
-
-        if index != len(groups) - 1:
-            _separator(layout)
-
 
 # ============================================================
 # REGISTER
