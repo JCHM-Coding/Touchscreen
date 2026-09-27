@@ -18,6 +18,10 @@ import importlib
 import json
 
 
+# ============================================================
+# MODULES
+# ============================================================
+
 _MODULE_NAMES = (
     ("toolbar", "Toolbar"),
     ("selection_others", "Selection Others"),
@@ -44,6 +48,10 @@ for _name, _label in _MODULE_NAMES:
 MODULES = tuple(MODULES)
 
 
+# ============================================================
+# MODULE CONTROL
+# ============================================================
+
 def _set_module(name, enabled):
 
     mod = next(
@@ -67,29 +75,73 @@ def _u(name):
     )
 
 
-def _load_default_favorites(self, context):
+# ============================================================
+# QUICK FAVORITES - LOAD DEFAULT
+# ============================================================
 
-    toolbar = next(
-        mod for name, _label, mod in MODULES
-        if name == "toolbar"
+class TOUCHSCREEN_OT_load_default_favorites(
+    bpy.types.Operator
+):
+    bl_idname = "view3d.touchscreen_load_default_favorites"
+    bl_label = "Load Default"
+    bl_description = (
+        "Load the default Touchscreen Quick Favorites"
     )
 
-    try:
-        self.touchscreen_object_favorites = json.dumps(
-            list(toolbar.DEFAULT_OBJECT_FAVORITES)
+    def execute(self, context):
+
+        toolbar = next(
+            (
+                module
+                for name, _label, module in MODULES
+                if name == "toolbar"
+            ),
+            None
         )
 
-        self.touchscreen_edit_favorites = json.dumps(
-            list(toolbar.DEFAULT_EDIT_FAVORITES)
-        )
+        if toolbar is None:
+            self.report(
+                {'ERROR'},
+                "Touchscreen Toolbar module is unavailable"
+            )
+            return {'CANCELLED'}
 
-    except Exception as e:
-        print(
-            f"Touchscreen - Quick Favorites defaults: {e}"
-        )
+        prefs = bpy.context.preferences.addons[
+            __package__
+        ].preferences
+
+        try:
+            prefs.touchscreen_object_favorites = json.dumps(
+                list(toolbar.DEFAULT_OBJECT_FAVORITES)
+            )
+
+            prefs.touchscreen_edit_favorites = json.dumps(
+                list(toolbar.DEFAULT_EDIT_FAVORITES)
+            )
+
+            # Loading defaults means that the internal
+            # Touchscreen favorites become the active source.
+            prefs.favorites_source = 'TOUCHSCREEN'
+
+        except Exception as e:
+
+            self.report(
+                {'ERROR'},
+                str(e)
+            )
+
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
 
 
-class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
+# ============================================================
+# ADD-ON PREFERENCES
+# ============================================================
+
+class TOUCHSCREEN_Preferences(
+    bpy.types.AddonPreferences
+):
 
     bl_idname = __package__
 
@@ -140,12 +192,15 @@ class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
     )
 
     # --------------------------------------------------------
-    # QUICK FAVORITES
+    # QUICK FAVORITES SOURCE
     # --------------------------------------------------------
 
     favorites_source: bpy.props.EnumProperty(
         name="Source",
-        description="Choose which Quick Favorites system the Touchscreen button uses",
+        description=(
+            "Choose which Quick Favorites system "
+            "the Touchscreen button uses"
+        ),
         items=[
             (
                 'TOUCHSCREEN',
@@ -161,6 +216,13 @@ class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
         default='TOUCHSCREEN',
     )
 
+    # --------------------------------------------------------
+    # INTERNAL FAVORITES
+    #
+    # Stored as JSON strings so no separate visible list or
+    # PropertyGroup is created in Preferences.
+    # --------------------------------------------------------
+
     touchscreen_object_favorites: bpy.props.StringProperty(
         name="Object Favorites",
         default="",
@@ -173,6 +235,10 @@ class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
         options={'HIDDEN'}
     )
 
+    # --------------------------------------------------------
+    # DRAW
+    # --------------------------------------------------------
+
     def draw(self, context):
 
         layout = self.layout
@@ -182,7 +248,9 @@ class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
         # ----------------------------------------------------
 
         box = layout.box()
-        box.label(text="Modules")
+        box.label(
+            text="Modules"
+        )
 
         for prop, label, _ in MODULES:
             box.prop(
@@ -196,9 +264,14 @@ class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
         # ----------------------------------------------------
 
         box = layout.box()
-        box.label(text="Viewport Controls Size")
 
-        row = box.row(align=True)
+        box.label(
+            text="Viewport Controls Size"
+        )
+
+        row = box.row(
+            align=True
+        )
 
         row.prop(
             self,
@@ -212,60 +285,92 @@ class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
         # ----------------------------------------------------
 
         box = layout.box()
-        box.label(text="Quick Favorites")
 
-        row = box.row(align=True)
+        box.label(
+            text="Quick Favorites"
+        )
 
-        row.prop(
+        box.prop(
             self,
             "favorites_source",
             text="Source"
         )
 
-        row = box.row(align=True)
+        row = box.row(
+            align=True
+        )
 
-        op = row.operator(
+        row.operator(
             "view3d.touchscreen_load_default_favorites",
             text="Load Default",
             icon='FILE_REFRESH'
         )
 
 
+# ============================================================
+# REGISTER
+# ============================================================
+
 CLASSES = (
+    TOUCHSCREEN_OT_load_default_favorites,
     TOUCHSCREEN_Preferences,
 )
 
 
-def register():
-
-    for cls in CLASSES:
-        bpy.utils.register_class(cls)
+def _initialize_favorites():
 
     prefs = bpy.context.preferences.addons[
         __package__
     ].preferences
 
-    # Initialize the internal lists the first time the addon is enabled.
     toolbar = next(
-        mod for name, _label, mod in MODULES
-        if name == "toolbar"
+        (
+            module
+            for name, _label, module in MODULES
+            if name == "toolbar"
+        ),
+        None
     )
 
+    if toolbar is None:
+        return
+
     try:
+
         if not prefs.touchscreen_object_favorites:
+
             prefs.touchscreen_object_favorites = json.dumps(
                 list(toolbar.DEFAULT_OBJECT_FAVORITES)
             )
 
         if not prefs.touchscreen_edit_favorites:
+
             prefs.touchscreen_edit_favorites = json.dumps(
                 list(toolbar.DEFAULT_EDIT_FAVORITES)
             )
 
     except Exception as e:
+
         print(
             f"Touchscreen - Quick Favorites initialization: {e}"
         )
+
+
+def register():
+
+    for cls in CLASSES:
+
+        try:
+            bpy.utils.register_class(cls)
+
+        except ValueError:
+            pass
+
+    _initialize_favorites()
+
+    prefs = bpy.context.preferences.addons[
+        __package__
+    ].preferences
 
     for prop, _label, mod in MODULES:
 
@@ -279,6 +384,7 @@ def register():
                 mod.register()
 
             except Exception as e:
+
                 print(
                     f"Touchscreen - {prop}: {e}"
                 )
