@@ -23,7 +23,10 @@ INVERT_ID = "NAVIGATION_INVERT_GT"
 
 BUTTON_RADIUS = 16.0
 BUTTON_HIT_RADIUS = 24.0
-CIRCLE_SEGMENTS = 64
+
+# Doubled circle resolution.
+CIRCLE_SEGMENTS = 128
+
 ICON_SIZE = 22.8
 
 
@@ -83,6 +86,56 @@ def draw_circle(x, y, radius, color, width=2.0):
         color,
         width
     )
+
+
+def draw_filled_circle(x, y, radius, color):
+
+    vertices = [(x, y)]
+
+    for i in range(CIRCLE_SEGMENTS + 1):
+
+        angle = (
+            2.0 *
+            math.pi *
+            i /
+            CIRCLE_SEGMENTS
+        )
+
+        vertices.append(
+            (
+                x + math.cos(angle) * radius,
+                y + math.sin(angle) * radius
+            )
+        )
+
+    indices = []
+
+    for i in range(1, CIRCLE_SEGMENTS + 1):
+        indices.append(
+            (
+                0,
+                i,
+                i + 1
+            )
+        )
+
+    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+
+    batch = batch_for_shader(
+        shader,
+        'TRIS',
+        {"pos": vertices},
+        indices=indices
+    )
+
+    shader.bind()
+    shader.uniform_float("color", color)
+
+    gpu.state.blend_set('ALPHA')
+
+    batch.draw(shader)
+
+    gpu.state.blend_set('NONE')
 
 
 def draw_maximize_icon(x, y, size, color):
@@ -322,18 +375,33 @@ class NAVIGATION_BaseGizmo(bpy.types.Gizmo):
         x = self.matrix_world[0][3]
         y = self.matrix_world[1][3]
 
-        color = (
-            0.18,
-            0.18,
-            0.18,
-            1.0
+        scale = _viewport_scale()
+        radius = BUTTON_RADIUS * scale
+
+        # Filled background.
+        draw_filled_circle(
+            x,
+            y,
+            radius,
+            (
+                0.08,
+                0.08,
+                0.08,
+                0.78
+            )
         )
 
+        # Circular border.
         draw_circle(
             x,
             y,
-            BUTTON_RADIUS * _viewport_scale(),
-            color,
+            radius,
+            (
+                0.18,
+                0.18,
+                0.18,
+                1.0
+            ),
             2.0
         )
 
@@ -830,6 +898,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
 
             if n_panel_prop is not None:
                 n_panel_open = bool(n_panel_prop)
+
             if shelf_prop is not None:
                 asset_shelf_open = bool(shelf_prop)
 
@@ -837,16 +906,29 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         # visibility properties.
         if (
             (getattr(space, "show_region_ui", None) is None)
-            or (getattr(space, "show_region_asset_shelf", None) is None)
+            or
+            (getattr(space, "show_region_asset_shelf", None) is None)
         ) and context.area:
+
             for r in context.area.regions:
-                if r.type == 'UI' and r.width > 1 and getattr(space, "show_region_ui", None) is None:
+
+                if (
+                    r.type == 'UI'
+                    and r.width > 1
+                    and getattr(space, "show_region_ui", None) is None
+                ):
                     n_panel_open = True
-                elif r.type == 'ASSET_SHELF' and r.height > 1 and getattr(space, "show_region_asset_shelf", None) is None:
+
+                elif (
+                    r.type == 'ASSET_SHELF'
+                    and r.height > 1
+                    and getattr(space, "show_region_asset_shelf", None) is None
+                ):
                     asset_shelf_open = True
 
         # Hide all viewport controls whenever the N-panel or Asset Shelf is open.
         if n_panel_open or asset_shelf_open:
+
             self.maximize.hide = True
             self.frame.hide = True
             self.quad.hide = True
@@ -855,6 +937,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
             self.side.hide = True
             self.top.hide = True
             self.invert.hide = True
+
             return
 
         scale = _viewport_scale()
@@ -975,17 +1058,19 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         # -------------------------------------------------
 
         if self.front.clicked:
+
             self.side.clicked = False
             self.top.clicked = False
 
         elif self.side.clicked:
+
             self.front.clicked = False
             self.top.clicked = False
 
         elif self.top.clicked:
+
             self.front.clicked = False
             self.side.clicked = False
-
 
 
 # ---------------------------------------------------------
@@ -1006,29 +1091,49 @@ classes = (
 
 
 def _ensure_gizmo_groups():
+
     wm = bpy.context.window_manager
+
     for window in wm.windows:
+
         screen = window.screen
+
         if screen is None:
             continue
+
         for area in screen.areas:
+
             if area.type != 'VIEW_3D':
                 continue
+
             try:
-                with bpy.context.temp_override(window=window, area=area):
+
+                with bpy.context.temp_override(
+                    window=window,
+                    area=area
+                ):
+
                     wm.gizmo_group_type_ensure(GROUP_ID)
+
             except Exception as e:
-                print("Touchscreen - Viewport Controls ensure:", e)
+
+                print(
+                    "Touchscreen - Viewport Controls ensure:",
+                    e
+                )
 
 
 def _ensure_gizmo_timer():
+
     # The addon can be enabled while Blender is rebuilding the screen.
     # Give the VIEW_3D areas one redraw cycle, then ensure the group again.
     _ensure_gizmo_groups()
+
     return None
 
 
 def register():
+
     # Important: the original standalone NewGizmo explicitly unregistered
     # before registering. Keep that behavior for reliable module reloads.
     try:
@@ -1043,20 +1148,33 @@ def register():
 
     # Also retry once after the current registration/update cycle.
     try:
-        bpy.app.timers.register(_ensure_gizmo_timer, first_interval=0.1)
+
+        bpy.app.timers.register(
+            _ensure_gizmo_timer,
+            first_interval=0.1
+        )
+
     except Exception:
         pass
 
-    print("Touchscreen - Viewport Controls registered")
+    print(
+        "Touchscreen - Viewport Controls registered"
+    )
 
 
 def unregister():
+
     try:
-        bpy.context.window_manager.gizmo_group_type_unlink_delayed(GROUP_ID)
+
+        bpy.context.window_manager.gizmo_group_type_unlink_delayed(
+            GROUP_ID
+        )
+
     except Exception:
         pass
 
     for cls in reversed(classes):
+
         try:
             bpy.utils.unregister_class(cls)
         except Exception:
