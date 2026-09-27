@@ -8,4 +8,4 @@ You could have to disable viewport control size x2 from preferences > addons > T
 
 Feel free to install the addon, to include it in any version of blender or to use it in your forks.
 
-All the code was made with the help of clankers.
+

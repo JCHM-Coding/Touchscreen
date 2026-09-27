@@ -128,7 +128,35 @@ class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        self.layout.menu_contents("SCREEN_MT_user_menu")
+        layout = self.layout
+        main_package = __package__.split('.')[0] if '.' in __package__ else __package__
+        prefs = context.preferences.addons.get(main_package)
+        
+        if not prefs or not hasattr(prefs, 'preferences'):
+            layout.label(text="Preferences not found")
+            return
+
+        favs = prefs.preferences.favorites
+        if not favs:
+            layout.label(text="No favorites configured")
+            return
+
+        for item in favs:
+            if item.op_type == 'CALL_MENU':
+                layout.menu(item.target, text=item.label)
+            elif item.op_type == 'EXEC_OPERATOR':
+                try:
+                    op = layout.operator(item.target, text=item.label)
+                    if item.properties.strip():
+                        pairs = item.properties.split(',')
+                        for pair in pairs:
+                            if '=' in pair:
+                                k, v = pair.split('=', 1)
+                                k = k.strip()
+                                v = eval(v.strip())
+                                setattr(op, k, v)
+                except Exception:
+                    layout.label(text=f"Invalid Op: {item.target}")
 
 
 class VIEW3D_OT_favorites_menu(bpy.types.Operator):
@@ -457,6 +485,96 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
 
 
 # ============================================================
+# POSE MODE
+# ============================================================
+
+class VIEW3D_MT_touchscreen_pose_copy(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_pose_copy"
+    bl_label = "Copy"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("pose.copy", text="Copy Selected", icon='COPYDOWN')
+        layout.operator("poselib.copy_as_asset", text="Copy as Asset", icon='ASSET_MANAGER')
+
+
+class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
+    bl_idname = "view3d.pose_copy_menu"
+    bl_label = "Copy"
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_copy")
+        return {'FINISHED'}
+
+
+class VIEW3D_MT_touchscreen_pose_paste(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_pose_paste"
+    bl_label = "Paste"
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator("pose.paste", text="Paste Pose", icon='PASTEDOWN')
+
+        op = layout.operator(
+            "pose.paste",
+            text="Paste Pose Flipped",
+            icon='PASTEFLIPDOWN'
+        )
+        op.flipped = True
+
+
+
+class VIEW3D_OT_pose_paste_menu(bpy.types.Operator):
+    bl_idname = "view3d.pose_paste_menu"
+    bl_label = "Paste"
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_paste")
+        return {'FINISHED'}
+
+
+class VIEW3D_MT_touchscreen_pose_show_hide(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_pose_show_hide"
+    bl_label = "Show/Hide"
+
+    def draw(self, context):
+        layout = self.layout
+
+        op = layout.operator("pose.hide", text="Hide Selected")
+        op.unselected = False
+
+        op = layout.operator("pose.hide", text="Hide Unselected")
+        op.unselected = True
+
+        layout.operator("pose.reveal", text="Show All")
+
+
+class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
+    bl_idname = "view3d.pose_show_hide_menu"
+    bl_label = "Show/Hide"
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_show_hide")
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_pose_insert_keyframe(bpy.types.Operator):
+    bl_idname = "view3d.pose_insert_keyframe"
+    bl_label = "Insert Keyframe"
+
+    def execute(self, context):
+        try:
+            bpy.ops.anim.keyframe_insert_menu(
+                'INVOKE_DEFAULT',
+                always_prompt=True
+            )
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+# ============================================================
 # TOOLBAR LAYOUT
 # ============================================================
 
@@ -778,6 +896,106 @@ def draw_toolbar(self, context):
         ]
 
     # --------------------------------------------------------
+    # POSE MODE
+    # --------------------------------------------------------
+
+    elif mode == 'POSE':
+
+        groups = [
+            [
+                (
+                    'view3d.pose_copy_menu',
+                    'COPYDOWN',
+                    'Copy',
+                    {}
+                ),
+                (
+                    'view3d.pose_paste_menu',
+                    'PASTEDOWN',
+                    'Paste',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.pose_insert_keyframe',
+                    'KEY_HLT',
+                    'Insert Keyframe',
+                    {}
+                ),
+                (
+                    'view3d.pose_show_hide_menu',
+                    'HIDE_OFF',
+                    'Show/Hide',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_repeat_last',
+                    'RECOVER_LAST',
+                    'Repeat Last',
+                    {}
+                ),
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
+    # DRAW MODE (GREASE PENCIL)
+    # --------------------------------------------------------
+
+    elif mode == 'PAINT_GREASE_PENCIL':
+
+        groups = [
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
     # SCULPT / PAINT
     # --------------------------------------------------------
 
@@ -885,6 +1103,14 @@ CLASSES = (
     VIEW3D_OT_simple_undo_history,
     VIEW3D_OT_simple_repeat_last,
 
+    VIEW3D_MT_touchscreen_pose_copy,
+    VIEW3D_OT_pose_copy_menu,
+    VIEW3D_MT_touchscreen_pose_paste,
+    VIEW3D_OT_pose_paste_menu,
+    VIEW3D_MT_touchscreen_pose_show_hide,
+    VIEW3D_OT_pose_show_hide_menu,
+    VIEW3D_OT_pose_insert_keyframe,
+
     VIEW3D_MT_touchscreen_fill,
     VIEW3D_OT_fill_menu,
 
@@ -936,4 +1162,3 @@ def unregister():
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
-
