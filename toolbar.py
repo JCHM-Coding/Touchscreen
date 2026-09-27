@@ -417,15 +417,27 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
+        # ----------------------------------------------------
+        # MARK SEAM
+        # ----------------------------------------------------
+
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
+        # ----------------------------------------------------
+        # CLEAR SEAM
+        # ----------------------------------------------------
+
         layout.operator(
             "view3d.touchscreen_clear_seam",
             text="Clear Seam"
         )
+
+        # ----------------------------------------------------
+        # UNWRAP
+        # ----------------------------------------------------
 
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
@@ -454,16 +466,8 @@ class VIEW3D_MT_touchscreen_pose_copy(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(
-            "pose.copy",
-            text="Copy Selected",
-            icon='COPYDOWN'
-        )
-        layout.operator(
-            "poselib.copy_as_asset",
-            text="Copy as Asset",
-            icon='ASSET_MANAGER'
-        )
+        layout.operator("pose.copy", text="Copy Selected", icon='COPYDOWN')
+        layout.operator("poselib.copy_as_asset", text="Copy as Asset", icon='ASSET_MANAGER')
 
 
 class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
@@ -471,9 +475,7 @@ class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
     bl_label = "Copy"
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_pose_copy"
-        )
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_copy")
         return {'FINISHED'}
 
 
@@ -484,11 +486,7 @@ class VIEW3D_MT_touchscreen_pose_paste(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        layout.operator(
-            "pose.paste",
-            text="Paste Pose",
-            icon='PASTEDOWN'
-        )
+        layout.operator("pose.paste", text="Paste Pose", icon='PASTEDOWN')
 
         op = layout.operator(
             "pose.paste",
@@ -498,14 +496,13 @@ class VIEW3D_MT_touchscreen_pose_paste(bpy.types.Menu):
         op.flipped = True
 
 
+
 class VIEW3D_OT_pose_paste_menu(bpy.types.Operator):
     bl_idname = "view3d.pose_paste_menu"
     bl_label = "Paste"
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_pose_paste"
-        )
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_paste")
         return {'FINISHED'}
 
 
@@ -516,22 +513,13 @@ class VIEW3D_MT_touchscreen_pose_show_hide(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        op = layout.operator(
-            "pose.hide",
-            text="Hide Selected"
-        )
+        op = layout.operator("pose.hide", text="Hide Selected")
         op.unselected = False
 
-        op = layout.operator(
-            "pose.hide",
-            text="Hide Unselected"
-        )
+        op = layout.operator("pose.hide", text="Hide Unselected")
         op.unselected = True
 
-        layout.operator(
-            "pose.reveal",
-            text="Show All"
-        )
+        layout.operator("pose.reveal", text="Show All")
 
 
 class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
@@ -539,9 +527,7 @@ class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
     bl_label = "Show/Hide"
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_pose_show_hide"
-        )
+        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_show_hide")
         return {'FINISHED'}
 
 
@@ -557,7 +543,6 @@ class VIEW3D_OT_pose_insert_keyframe(bpy.types.Operator):
             )
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
-
         return {'FINISHED'}
 
 
@@ -640,6 +625,7 @@ def _draw_group(layout, items, columns, show_text):
                 item,
                 show_text
             )
+
 
 
 # ============================================================
@@ -950,7 +936,7 @@ def draw_toolbar(self, context):
         ]
 
     # --------------------------------------------------------
-    # DRAW MODE
+    # DRAW MODE (GREASE PENCIL)
     # --------------------------------------------------------
 
     elif mode == 'PAINT_GREASE_PENCIL':
@@ -1027,6 +1013,8 @@ def draw_toolbar(self, context):
 
     if columns == 2 and not show_text:
 
+        # One continuous 2-column grid for the whole toolbar.
+        # This removes the gaps between individual group rows.
         grid = layout.grid_flow(
             row_major=True,
             columns=2,
@@ -1047,6 +1035,8 @@ def draw_toolbar(self, context):
 
     else:
 
+        # One continuous column, just like the native Blender toolbar.
+        # Draw every button consecutively so there is no gap between groups.
         column = layout.column(
             align=True
         )
@@ -1110,6 +1100,10 @@ CLASSES = (
 )
 
 
+# ============================================================
+# REGISTER / UNREGISTER
+# ============================================================
+
 def register():
 
     for cls in CLASSES:
@@ -1140,3 +1134,4 @@ def unregister():
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
+
