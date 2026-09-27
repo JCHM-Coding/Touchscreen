@@ -1,232 +1,557 @@
-import bpy
+# ============================================================
+# QUICK FAVORITES
+# ============================================================
 
-# =========================================================================
-# 1. ESTRUCTURA DE DATOS DINÁMICA POR MODO
-# =========================================================================
-
-class DynamicFavoriteItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty(name="Nombre")
-    operator_id: bpy.props.StringProperty(name="Operador Blender")
-    mode: bpy.props.StringProperty(name="Modo de Origen")
-
-class AddonFavoritesProperties(bpy.types.PropertyGroup):
-    all_favorites: bpy.props.CollectionProperty(type=DynamicFavoriteItem)
-
-def get_favorites_for_current_mode(context):
-    """Filtra y devuelve solo los favoritos que coinciden exactamente con el modo activo."""
-    if not hasattr(context, "scene") or not context.scene:
-        return []
-        
-    props = getattr(context.scene, "my_addon_favorites", None)
-    if not props:
-        return []
-        
-    current_mode = context.mode
-    return [(i, item) for i, item in enumerate(props.all_favorites) if item.mode == current_mode]
+import json
 
 
-# =========================================================================
-# 2. OPERADORES (AÑADIR, EJECUTAR, ELIMINAR, DESHACER/REHACER)
-# =========================================================================
+# ------------------------------------------------------------
+# DEFAULT TOUCHSCREEN FAVORITES
+# ------------------------------------------------------------
 
-class MYADDON_OT_quick_undo(bpy.types.Operator):
-    """Deshacer última acción"""
-    bl_idname = "myaddon.quick_undo"
-    bl_label = "Deshacer"
-    
-    def execute(self, context):
-        try:
-            bpy.ops.ed.undo()
-        except Exception:
-            pass
-        return {'FINISHED'}
-
-class MYADDON_OT_quick_redo(bpy.types.Operator):
-    """Rehacer última acción"""
-    bl_idname = "myaddon.quick_redo"
-    bl_label = "Rehacer"
-    
-    def execute(self, context):
-        try:
-            bpy.ops.ed.redo()
-        except Exception:
-            pass
-        return {'FINISHED'}
-
-class MYADDON_OT_add_current_op(bpy.types.Operator):
-    """Añadir favorito directamente al modo actual"""
-    bl_idname = "myaddon.add_current_op"
-    bl_label = "Añadir a Favoritos del Modo"
-    
-    name: bpy.props.StringProperty(name="Nombre del Botón", default="Mi Acción")
-    operator_id: bpy.props.StringProperty(name="Operador (ej: object.select_all)", default="")
-
-    def execute(self, context):
-        if not self.operator_id:
-            self.report({'WARNING'}, "Debes ingresar el identificador del operador")
-            return {'CANCELLED'}
-            
-        props = context.scene.my_addon_favorites
-        item = props.all_favorites.add()
-        item.name = self.name
-        item.operator_id = self.operator_id.strip()
-        item.mode = context.mode
-        
-        self.report({'INFO'}, f"Favorito añadido a {context.mode}")
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
-
-class MYADDON_OT_execute_favorite(bpy.types.Operator):
-    """Ejecutar el operador del favorito de forma segura"""
-    bl_idname = "myaddon.execute_favorite"
-    bl_label = "Ejecutar Favorito"
-    
-    operator_id: bpy.props.StringProperty()
-
-    def execute(self, context):
-        if not self.operator_id:
-            return {'CANCELLED'}
-        try:
-            # Dividir el identificador "modulo.operador" de forma segura sin usar eval()
-            parts = self.operator_id.split(".")
-            if len(parts) == 2:
-                module, op_name = parts
-                op_func = getattr(getattr(bpy.ops, module, None), op_name, None)
-                if op_func:
-                    op_func()
-                    return {'FINISHED'}
-            self.report({'ERROR'}, f"Operador no válido: '{self.operator_id}'")
-        except Exception as e:
-            self.report({'ERROR'}, f"Error ejecutando '{self.operator_id}': {e}")
-        return {'CANCELLED'}
-
-class MYADDON_OT_remove_favorite(bpy.types.Operator):
-    """Eliminar favorito"""
-    bl_idname = "myaddon.remove_favorite"
-    bl_label = "Eliminar Favorito"
-    
-    real_index: bpy.props.IntProperty()
-
-    def execute(self, context):
-        props = context.scene.my_addon_favorites
-        if 0 <= self.real_index < len(props.all_favorites):
-            props.all_favorites.remove(self.real_index)
-            self.report({'INFO'}, "Favorito eliminado")
-            return {'FINISHED'}
-        return {'CANCELLED'}
-
-
-# =========================================================================
-# 3. INTERFAZ: TOOLBAR (HEADER) Y N-PANEL
-# =========================================================================
-
-class MYADDON_MT_favorites_menu(bpy.types.Menu):
-    bl_label = "Gestión de Favoritos"
-    bl_idname = "MYADDON_MT_favorites_menu"
-
-    def draw(self, context):
-        layout = self.layout
-        filtered_favs = get_favorites_for_current_mode(context)
-        
-        layout.operator("myaddon.add_current_op", text=f"Añadir Favorito a {context.mode}", icon='ADD')
-        layout.separator()
-        
-        if not filtered_favs:
-            layout.label(text=f"Sin favoritos en {context.mode}")
-        else:
-            layout.label(text="Quitar favoritos de este modo:")
-            for real_idx, item in filtered_favs:
-                op = layout.operator("myaddon.remove_favorite", text=f"Eliminar: {item.name}", icon='TRASH')
-                op.real_index = real_idx
-
-
-def draw_toolbar_favorites(self, context):
-    """Función de renderizado para el Header/Toolbar del Viewport"""
-    layout = self.layout
-    filtered_favs = get_favorites_for_current_mode(context)
-    
-    layout.separator()
-    
-    # Controles de Undo / Redo
-    row_quick = layout.row(align=True)
-    row_quick.operator("myaddon.quick_undo", text="", icon='LOOP_BACK')
-    row_quick.operator("myaddon.quick_redo", text="", icon='LOOP_FORW')
-    
-    layout.separator()
-
-    # Dibuja solo los favoritos del modo actual
-    for real_idx, item in filtered_favs:
-        row = layout.row(align=True)
-        op_exec = row.operator("myaddon.execute_favorite", text=item.name)
-        op_exec.operator_id = item.operator_id
-
-    # Menú desplegable para añadir/borrar sin salir del Viewport
-    layout.menu("MYADDON_MT_favorites_menu", text="", icon='DOWNARROW_HLT')
-
-
-class MYADDON_PT_favorites_npanel(bpy.types.Panel):
-    bl_label = "Favoritos por Modo"
-    bl_idname = "MYADDON_PT_favorites_npanel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'Favoritos'
-
-    def draw(self, context):
-        layout = self.layout
-        current_mode = context.mode
-        filtered_favs = get_favorites_for_current_mode(context)
-        
-        box = layout.box()
-        box.label(text=f"Modo Activo: {current_mode}", icon='VIEW3D')
-        box.operator("myaddon.add_current_op", text="Añadir Favorito", icon='ADD')
-
-        layout.separator()
-
-        if not filtered_favs:
-            layout.label(text="No hay favoritos guardados para este modo.")
-        else:
-            for real_idx, item in filtered_favs:
-                row = layout.row(align=True)
-                
-                op_exec = row.operator("myaddon.execute_favorite", text=item.name)
-                op_exec.operator_id = item.operator_id
-                
-                op_del = row.operator("myaddon.remove_favorite", text="", icon='X')
-                op_del.real_index = real_idx
-
-
-# =========================================================================
-# 4. REGISTRO
-# =========================================================================
-
-classes = (
-    DynamicFavoriteItem,
-    AddonFavoritesProperties,
-    MYADDON_OT_quick_undo,
-    MYADDON_OT_quick_redo,
-    MYADDON_OT_add_current_op,
-    MYADDON_OT_execute_favorite,
-    MYADDON_OT_remove_favorite,
-    MYADDON_MT_favorites_menu,
-    MYADDON_PT_favorites_npanel,
+DEFAULT_OBJECT_FAVORITES = (
+    "object.set_origin",
+    "object.parent_set",
+    "object.parent_clear",
+    "object.apply_scale",
+    "object.all_transforms",
+    "object.visual_geometry_to_mesh",
+    "object.visual_geometry_to_objects",
+    "object.make_instances_real",
 )
 
-def register():
-    for cls in classes:
-        bpy.utils.register_class(cls)
-        
-    bpy.types.Scene.my_addon_favorites = bpy.props.PointerProperty(type=AddonFavoritesProperties)
-    bpy.types.VIEW3D_HT_header.append(draw_toolbar_favorites)
+DEFAULT_EDIT_FAVORITES = (
+    "mesh.select_edge_loop",
+    "mesh.select_edge_ring",
+    "mesh.shortest_path",
+    "mesh.edge_crease",
+    "mesh.to_circle",
+    "mesh.space_edge_loops_evenly",
+    "mesh.symmetrize",
+    "mesh.flip_normals",
+    "mesh.recalculate_outside",
+)
 
-def unregister():
-    bpy.types.VIEW3D_HT_header.remove(draw_toolbar_favorites)
-    if hasattr(bpy.types.Scene, "my_addon_favorites"):
-        del bpy.types.Scene.my_addon_favorites
-    
-    for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
 
-if __name__ == "__main__":
-    register()
+# ------------------------------------------------------------
+# FAVORITE DEFINITIONS
+# ------------------------------------------------------------
+
+TOUCHSCREEN_OBJECT_FAVORITES = {
+    "object.set_origin": (
+        "Set Origin",
+        'OBJECT_ORIGIN'
+    ),
+
+    "object.parent_set": (
+        "Set Parent",
+        'CONSTRAINT'
+    ),
+
+    "object.parent_clear": (
+        "Clear Parent",
+        'X'
+    ),
+
+    "object.apply_scale": (
+        "Apply Scale",
+        'OBJECT_ORIGIN'
+    ),
+
+    "object.all_transforms": (
+        "All Transforms",
+        'OBJECT_ORIGIN'
+    ),
+
+    "object.visual_geometry_to_mesh": (
+        "Visual Geometry to Mesh",
+        'MESH_DATA'
+    ),
+
+    "object.visual_geometry_to_objects": (
+        "Visual Geometry to Objects",
+        'MESH_DATA'
+    ),
+
+    "object.make_instances_real": (
+        "Make Instances Real",
+        'DUPLICATE'
+    ),
+}
+
+
+TOUCHSCREEN_EDIT_FAVORITES = {
+    "mesh.select_edge_loop": (
+        "Select Edge Loop",
+        'EDGESEL'
+    ),
+
+    "mesh.select_edge_ring": (
+        "Select Edge Ring",
+        'EDGESEL'
+    ),
+
+    "mesh.shortest_path": (
+        "Shortest Path",
+        'EDGESEL'
+    ),
+
+    "mesh.edge_crease": (
+        "Edge Crease",
+        'CREASE'
+    ),
+
+    "mesh.to_circle": (
+        "To Circle",
+        'SPHERE'
+    ),
+
+    "mesh.space_edge_loops_evenly": (
+        "Space Edge Loops Evenly",
+        'LOOPSEL'
+    ),
+
+    "mesh.symmetrize": (
+        "Symmetrize",
+        'MOD_MIRROR'
+    ),
+
+    "mesh.flip_normals": (
+        "Flip Normals",
+        'NORMALS_FACE'
+    ),
+
+    "mesh.recalculate_outside": (
+        "Recalculate Outside",
+        'NORMALS_FACE'
+    ),
+}
+
+
+def _get_touchscreen_preferences():
+
+    try:
+        addon = bpy.context.preferences.addons.get(
+            __package__
+        )
+
+        if addon is None:
+            return None
+
+        return addon.preferences
+
+    except Exception:
+        return None
+
+
+def _get_favorite_list(mode):
+
+    prefs = _get_touchscreen_preferences()
+
+    if prefs is None:
+        return []
+
+    try:
+        if mode == 'OBJECT':
+            raw = prefs.touchscreen_object_favorites
+        else:
+            raw = prefs.touchscreen_edit_favorites
+
+        if not raw:
+            return []
+
+        result = json.loads(raw)
+
+        if isinstance(result, list):
+            return result
+
+    except (
+        TypeError,
+        ValueError,
+        json.JSONDecodeError
+    ):
+        pass
+
+    return []
+
+
+def _set_favorite_list(mode, favorites):
+
+    prefs = _get_touchscreen_preferences()
+
+    if prefs is None:
+        return
+
+    value = json.dumps(
+        list(favorites)
+    )
+
+    if mode == 'OBJECT':
+        prefs.touchscreen_object_favorites = value
+    else:
+        prefs.touchscreen_edit_favorites = value
+
+
+def _favorite_definitions(mode):
+
+    if mode == 'OBJECT':
+        return TOUCHSCREEN_OBJECT_FAVORITES
+
+    if mode == 'EDIT_MESH':
+        return TOUCHSCREEN_EDIT_FAVORITES
+
+    return {}
+
+
+def _favorite_operator(favorite_id, context):
+
+    # --------------------------------------------------------
+    # OBJECT MODE
+    # --------------------------------------------------------
+
+    if favorite_id == "object.set_origin":
+        return bpy.ops.object.origin_set(
+            'INVOKE_DEFAULT'
+        )
+
+    if favorite_id == "object.parent_set":
+        return bpy.ops.object.parent_set(
+            'INVOKE_DEFAULT'
+        )
+
+    if favorite_id == "object.parent_clear":
+        return bpy.ops.object.parent_clear(
+            type='CLEAR'
+        )
+
+    if favorite_id == "object.apply_scale":
+        return bpy.ops.object.transform_apply(
+            location=False,
+            rotation=False,
+            scale=True
+        )
+
+    if favorite_id == "object.all_transforms":
+        return bpy.ops.object.transform_apply(
+            location=True,
+            rotation=True,
+            scale=True
+        )
+
+    if favorite_id == "object.visual_geometry_to_mesh":
+        return bpy.ops.object.convert(
+            target='MESH',
+            keep_original=False
+        )
+
+    if favorite_id == "object.visual_geometry_to_objects":
+        return bpy.ops.object.visual_geometry_to_objects()
+
+    if favorite_id == "object.make_instances_real":
+        return bpy.ops.object.duplicates_make_real()
+
+    # --------------------------------------------------------
+    # EDIT MODE
+    # --------------------------------------------------------
+
+    if favorite_id == "mesh.select_edge_loop":
+        return bpy.ops.mesh.loop_select(
+            'INVOKE_DEFAULT',
+            extend=False,
+            deselect=False,
+            toggle=False,
+            ring=False
+        )
+
+    if favorite_id == "mesh.select_edge_ring":
+        return bpy.ops.mesh.loop_select(
+            'INVOKE_DEFAULT',
+            extend=False,
+            deselect=False,
+            toggle=False,
+            ring=True
+        )
+
+    if favorite_id == "mesh.shortest_path":
+        return bpy.ops.mesh.shortest_path_pick(
+            'INVOKE_DEFAULT'
+        )
+
+    if favorite_id == "mesh.edge_crease":
+        return bpy.ops.transform.edge_crease(
+            'INVOKE_DEFAULT'
+        )
+
+    if favorite_id == "mesh.to_circle":
+        return bpy.ops.transform.tosphere(
+            'INVOKE_DEFAULT',
+            value=1.0
+        )
+
+    if favorite_id == "mesh.space_edge_loops_evenly":
+        return bpy.ops.mesh.looptools_space(
+            'INVOKE_DEFAULT'
+        )
+
+    if favorite_id == "mesh.symmetrize":
+        return bpy.ops.mesh.symmetrize(
+            'INVOKE_DEFAULT'
+        )
+
+    if favorite_id == "mesh.flip_normals":
+        return bpy.ops.mesh.flip_normals()
+
+    if favorite_id == "mesh.recalculate_outside":
+        return bpy.ops.mesh.normals_make_consistent(
+            inside=False
+        )
+
+    return {'CANCELLED'}
+
+
+class VIEW3D_OT_touchscreen_favorite(
+    bpy.types.Operator
+):
+    bl_idname = "view3d.touchscreen_favorite"
+    bl_label = "Quick Favorite"
+
+    favorite_id: bpy.props.StringProperty(
+        options={'HIDDEN'}
+    )
+
+    favorite_mode: bpy.props.StringProperty(
+        options={'HIDDEN'}
+    )
+
+    def execute(self, context):
+
+        if not self.favorite_id:
+            return {'CANCELLED'}
+
+        try:
+            result = _favorite_operator(
+                self.favorite_id,
+                context
+            )
+
+        except (
+            RuntimeError,
+            AttributeError
+        ) as e:
+
+            self.report(
+                {'ERROR'},
+                str(e)
+            )
+
+            return {'CANCELLED'}
+
+        return result
+
+
+class VIEW3D_OT_touchscreen_remove_favorite(
+    bpy.types.Operator
+):
+    bl_idname = "view3d.touchscreen_remove_favorite"
+    bl_label = "Remove from Touchscreen Favorites"
+
+    favorite_id: bpy.props.StringProperty(
+        options={'HIDDEN'}
+    )
+
+    favorite_mode: bpy.props.StringProperty(
+        options={'HIDDEN'}
+    )
+
+    def execute(self, context):
+
+        if self.favorite_mode not in {
+            'OBJECT',
+            'EDIT_MESH'
+        }:
+            return {'CANCELLED'}
+
+        favorites = _get_favorite_list(
+            self.favorite_mode
+        )
+
+        if self.favorite_id in favorites:
+            favorites.remove(
+                self.favorite_id
+            )
+
+            _set_favorite_list(
+                self.favorite_mode,
+                favorites
+            )
+
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_touchscreen_load_default_favorites(
+    bpy.types.Operator
+):
+    bl_idname = "view3d.touchscreen_load_default_favorites"
+    bl_label = "Load Default"
+
+    def execute(self, context):
+
+        prefs = _get_touchscreen_preferences()
+
+        if prefs is None:
+            return {'CANCELLED'}
+
+        prefs.touchscreen_object_favorites = json.dumps(
+            list(DEFAULT_OBJECT_FAVORITES)
+        )
+
+        prefs.touchscreen_edit_favorites = json.dumps(
+            list(DEFAULT_EDIT_FAVORITES)
+        )
+
+        prefs.favorites_source = 'TOUCHSCREEN'
+
+        return {'FINISHED'}
+
+
+def _draw_touchscreen_favorite_context_menu(
+    self,
+    context
+):
+
+    favorite_id = getattr(
+        context,
+        "touchscreen_favorite_id",
+        ""
+    )
+
+    favorite_mode = getattr(
+        context,
+        "touchscreen_favorite_mode",
+        ""
+    )
+
+    if not favorite_id:
+        return
+
+    if favorite_mode not in {
+        'OBJECT',
+        'EDIT_MESH'
+    }:
+        return
+
+    prefs = _get_touchscreen_preferences()
+
+    if prefs is None:
+        return
+
+    if prefs.favorites_source != 'TOUCHSCREEN':
+        return
+
+    layout = self.layout
+
+    layout.separator()
+
+    op = layout.operator(
+        "view3d.touchscreen_remove_favorite",
+        text="Remove from Touchscreen Favorites",
+        icon='X'
+    )
+
+    op.favorite_id = favorite_id
+    op.favorite_mode = favorite_mode
+
+
+class VIEW3D_MT_touchscreen_favorites(
+    bpy.types.Menu
+):
+
+    bl_idname = "VIEW3D_MT_touchscreen_favorites"
+    bl_label = "Quick Favorites"
+
+    def draw(self, context):
+
+        prefs = _get_touchscreen_preferences()
+
+        if prefs is None:
+            return
+
+        # ----------------------------------------------------
+        # NATIVE BLENDER FAVORITES
+        # ----------------------------------------------------
+
+        if prefs.favorites_source == 'BLENDER':
+            self.layout.menu_contents(
+                "SCREEN_MT_user_menu"
+            )
+            return
+
+        # ----------------------------------------------------
+        # TOUCHSCREEN FAVORITES
+        # ----------------------------------------------------
+
+        mode = context.mode
+
+        if mode not in {
+            'OBJECT',
+            'EDIT_MESH'
+        }:
+            return
+
+        favorites = _get_favorite_list(
+            mode
+        )
+
+        definitions = _favorite_definitions(
+            mode
+        )
+
+        layout = self.layout
+
+        for favorite_id in favorites:
+
+            definition = definitions.get(
+                favorite_id
+            )
+
+            if definition is None:
+                continue
+
+            text, icon = definition
+
+            # Store the identity of this button in the
+            # context used by Blender's right-click menu.
+            layout.context_pointer_set(
+                "touchscreen_favorite_id",
+                favorite_id
+            )
+
+            layout.context_pointer_set(
+                "touchscreen_favorite_mode",
+                mode
+            )
+
+            op = layout.operator(
+                "view3d.touchscreen_favorite",
+                text=text,
+                icon=icon
+            )
+
+            op.favorite_id = favorite_id
+            op.favorite_mode = mode
+
+
+class VIEW3D_OT_favorites_menu(
+    bpy.types.Operator
+):
+
+    bl_idname = "view3d.favorites_menu"
+    bl_label = "Quick Favorites"
+
+    def execute(self, context):
+
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_favorites"
+        )
+
+        return {'FINISHED'}
