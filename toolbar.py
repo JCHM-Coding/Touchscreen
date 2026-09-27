@@ -10,51 +10,76 @@ class DynamicFavoriteItem(bpy.types.PropertyGroup):
     mode: bpy.props.StringProperty(name="Modo de Origen")
 
 class AddonFavoritesProperties(bpy.types.PropertyGroup):
-    # Colección global donde cada ítem sabe a qué modo pertenece
     all_favorites: bpy.props.CollectionProperty(type=DynamicFavoriteItem)
 
 def get_favorites_for_current_mode(context):
-    """Filtra y devuelve solo los favoritos del modo activo del Viewport."""
-    props = context.scene.my_addon_favorites
+    """Filtra y devuelve solo los favoritos que coinciden exactamente con el modo activo."""
+    if not hasattr(context, "scene") or not context.scene:
+        return []
+        
+    props = getattr(context.scene, "my_addon_favorites", None)
+    if not props:
+        return []
+        
     current_mode = context.mode
+    return [(i, item) for i, item in enumerate(props.all_favorites) if item.mode == current_mode]
+
+
+# =========================================================================
+# 2. OPERADORES (AÑADIR, EJECUTAR, ELIMINAR, DESHACER/REHACER)
+# =========================================================================
+
+class MYADDON_OT_quick_undo(bpy.types.Operator):
+    """Deshacer última acción"""
+    bl_idname = "myaddon.quick_undo"
+    bl_label = "Deshacer"
     
-    # Devuelve lista de tuplas (índice_real, elemento)
-    filtered = [(i, item) for i, item in enumerate(props.all_favorites) if item.mode == current_mode]
-    return filtered
+    def execute(self, context):
+        try:
+            bpy.ops.ed.undo()
+        except Exception:
+            pass
+        return {'FINISHED'}
 
-
-# =========================================================================
-# 2. OPERADORES: AÑADIR, EJECUTAR Y ELIMINAR DESDE EL PROGRAMA
-# =========================================================================
+class MYADDON_OT_quick_redo(bpy.types.Operator):
+    """Rehacer última acción"""
+    bl_idname = "myaddon.quick_redo"
+    bl_label = "Rehacer"
+    
+    def execute(self, context):
+        try:
+            bpy.ops.ed.redo()
+        except Exception:
+            pass
+        return {'FINISHED'}
 
 class MYADDON_OT_add_current_op(bpy.types.Operator):
-    """Añadir una acción rápida al modo actual directamente desde la interfaz"""
+    """Añadir favorito directamente al modo actual"""
     bl_idname = "myaddon.add_current_op"
     bl_label = "Añadir a Favoritos del Modo"
     
     name: bpy.props.StringProperty(name="Nombre del Botón", default="Mi Acción")
-    operator_id: bpy.props.StringProperty(name="Identificador del Operador (ej: sculpt.expand)", default="")
+    operator_id: bpy.props.StringProperty(name="Operador (ej: object.select_all)", default="")
 
     def execute(self, context):
         if not self.operator_id:
-            self.report({'WARNING'}, "Se requiere el identificador de un operador")
+            self.report({'WARNING'}, "Debes ingresar el identificador del operador")
             return {'CANCELLED'}
             
         props = context.scene.my_addon_favorites
         item = props.all_favorites.add()
         item.name = self.name
-        item.operator_id = self.operator_id
-        item.mode = context.mode  # Guarda el modo exacto activo ("SCULPT", "EDIT_MESH", "OBJECT", etc.)
+        item.operator_id = self.operator_id.strip()
+        item.mode = context.mode
         
-        self.report({'INFO'}, f"Añadido a favoritos de {context.mode}")
+        self.report({'INFO'}, f"Favorito añadido a {context.mode}")
         return {'FINISHED'}
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
-
 class MYADDON_OT_execute_favorite(bpy.types.Operator):
-    """Ejecutar favorito asignado"""
+    """Ejecutar el operador del favorito de forma segura"""
     bl_idname = "myaddon.execute_favorite"
     bl_label = "Ejecutar Favorito"
     
@@ -64,16 +89,21 @@ class MYADDON_OT_execute_favorite(bpy.types.Operator):
         if not self.operator_id:
             return {'CANCELLED'}
         try:
-            # Soportar llamadas tipo "sculpt.expand" u "object.select_all"
-            eval(f"bpy.ops.{self.operator_id}()")
-            return {'FINISHED'}
+            # Dividir el identificador "modulo.operador" de forma segura sin usar eval()
+            parts = self.operator_id.split(".")
+            if len(parts) == 2:
+                module, op_name = parts
+                op_func = getattr(getattr(bpy.ops, module, None), op_name, None)
+                if op_func:
+                    op_func()
+                    return {'FINISHED'}
+            self.report({'ERROR'}, f"Operador no válido: '{self.operator_id}'")
         except Exception as e:
-            self.report({'ERROR'}, f"Error al ejecutar '{self.operator_id}': {e}")
-            return {'CANCELLED'}
-
+            self.report({'ERROR'}, f"Error ejecutando '{self.operator_id}': {e}")
+        return {'CANCELLED'}
 
 class MYADDON_OT_remove_favorite(bpy.types.Operator):
-    """Quitar elemento de los favoritos"""
+    """Eliminar favorito"""
     bl_idname = "myaddon.remove_favorite"
     bl_label = "Eliminar Favorito"
     
@@ -89,10 +119,9 @@ class MYADDON_OT_remove_favorite(bpy.types.Operator):
 
 
 # =========================================================================
-# 3. INTERFAZ: TOOLBAR Y N-PANEL FILTRADOS POR CONTEXT.MODE
+# 3. INTERFAZ: TOOLBAR (HEADER) Y N-PANEL
 # =========================================================================
 
-# Menú contextual/desplegable rápido en el Header
 class MYADDON_MT_favorites_menu(bpy.types.Menu):
     bl_label = "Gestión de Favoritos"
     bl_idname = "MYADDON_MT_favorites_menu"
@@ -107,37 +136,36 @@ class MYADDON_MT_favorites_menu(bpy.types.Menu):
         if not filtered_favs:
             layout.label(text=f"Sin favoritos en {context.mode}")
         else:
-            layout.label(text="Borrar favoritos de este modo:")
+            layout.label(text="Quitar favoritos de este modo:")
             for real_idx, item in filtered_favs:
                 op = layout.operator("myaddon.remove_favorite", text=f"Eliminar: {item.name}", icon='TRASH')
                 op.real_index = real_idx
 
 
-# Dibujo en la Barra Superior (Header / Toolbar)
 def draw_toolbar_favorites(self, context):
+    """Función de renderizado para el Header/Toolbar del Viewport"""
     layout = self.layout
     filtered_favs = get_favorites_for_current_mode(context)
     
     layout.separator()
     
-    # Controles de Undo / Redo rápidos
+    # Controles de Undo / Redo
     row_quick = layout.row(align=True)
-    row_quick.operator("ed.undo", text="", icon='LOOP_BACK')
-    row_quick.operator("ed.redo", text="", icon='LOOP_FORW')
+    row_quick.operator("myaddon.quick_undo", text="", icon='LOOP_BACK')
+    row_quick.operator("myaddon.quick_redo", text="", icon='LOOP_FORW')
     
     layout.separator()
 
-    # Dibuja ÚNICAMENTE los favoritos que coinciden con context.mode
+    # Dibuja solo los favoritos del modo actual
     for real_idx, item in filtered_favs:
         row = layout.row(align=True)
         op_exec = row.operator("myaddon.execute_favorite", text=item.name)
         op_exec.operator_id = item.operator_id
 
-    # Menú para agregar/eliminar sin salir de la vista
+    # Menú desplegable para añadir/borrar sin salir del Viewport
     layout.menu("MYADDON_MT_favorites_menu", text="", icon='DOWNARROW_HLT')
 
 
-# Dibujo en el N-Panel
 class MYADDON_PT_favorites_npanel(bpy.types.Panel):
     bl_label = "Favoritos por Modo"
     bl_idname = "MYADDON_PT_favorites_npanel"
@@ -152,9 +180,7 @@ class MYADDON_PT_favorites_npanel(bpy.types.Panel):
         
         box = layout.box()
         box.label(text=f"Modo Activo: {current_mode}", icon='VIEW3D')
-        
-        row_add = box.row()
-        row_add.operator("myaddon.add_current_op", text="Añadir Favorito", icon='ADD')
+        box.operator("myaddon.add_current_op", text="Añadir Favorito", icon='ADD')
 
         layout.separator()
 
@@ -164,11 +190,9 @@ class MYADDON_PT_favorites_npanel(bpy.types.Panel):
             for real_idx, item in filtered_favs:
                 row = layout.row(align=True)
                 
-                # Ejecutar
                 op_exec = row.operator("myaddon.execute_favorite", text=item.name)
                 op_exec.operator_id = item.operator_id
                 
-                # Borrar directo (X)
                 op_del = row.operator("myaddon.remove_favorite", text="", icon='X')
                 op_del.real_index = real_idx
 
@@ -180,6 +204,8 @@ class MYADDON_PT_favorites_npanel(bpy.types.Panel):
 classes = (
     DynamicFavoriteItem,
     AddonFavoritesProperties,
+    MYADDON_OT_quick_undo,
+    MYADDON_OT_quick_redo,
     MYADDON_OT_add_current_op,
     MYADDON_OT_execute_favorite,
     MYADDON_OT_remove_favorite,
@@ -196,7 +222,8 @@ def register():
 
 def unregister():
     bpy.types.VIEW3D_HT_header.remove(draw_toolbar_favorites)
-    del bpy.types.Scene.my_addon_favorites
+    if hasattr(bpy.types.Scene, "my_addon_favorites"):
+        del bpy.types.Scene.my_addon_favorites
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
