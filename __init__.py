@@ -15,12 +15,8 @@ bl_info = {
 
 import bpy
 import importlib
-import json
+import sys
 
-
-# ============================================================
-# MODULES
-# ============================================================
 
 _MODULE_NAMES = (
     ("toolbar", "Toolbar"),
@@ -32,8 +28,118 @@ _MODULE_NAMES = (
 )
 
 
-# Import modules one at a time. This avoids package-level circular-import
-# failures while Blender is enabling the add-on.
+# ============================================================
+# TOUCHSCREEN QUICK FAVORITES
+#
+# These are NOT a separate favorites system.
+#
+# They are only the predefined items that Touchscreen can add
+# to Blender's native Quick Favorites menu.
+# ============================================================
+
+TOUCHSCREEN_OBJECT_FAVORITES = (
+    {
+        "name": "Set Origin",
+        "operator": "object.origin_set",
+    },
+    {
+        "name": "Set Parent",
+        "operator": "object.parent_set",
+    },
+    {
+        "name": "Clear Parent",
+        "operator": "object.parent_clear",
+    },
+    {
+        "name": "Apply Scale",
+        "operator": "object.transform_apply",
+        "properties": {
+            "location": False,
+            "rotation": False,
+            "scale": True,
+        },
+    },
+    {
+        "name": "All Transforms",
+        "operator": "object.transform_apply",
+        "properties": {
+            "location": True,
+            "rotation": True,
+            "scale": True,
+        },
+    },
+    {
+        "name": "Visual Geometry to Mesh",
+        "operator": "object.convert",
+        "properties": {
+            "target": "MESH",
+            "keep_original": False,
+        },
+    },
+    {
+        "name": "Visual Geometry to Objects",
+        "operator": "object.visual_geometry_to_objects",
+    },
+    {
+        "name": "Make Instances Real",
+        "operator": "object.duplicates_make_real",
+    },
+)
+
+
+TOUCHSCREEN_EDIT_FAVORITES = (
+    {
+        "name": "Select Edge Loop",
+        "operator": "mesh.loop_select",
+        "properties": {
+            "ring": False,
+        },
+    },
+    {
+        "name": "Select Edge Ring",
+        "operator": "mesh.loop_select",
+        "properties": {
+            "ring": True,
+        },
+    },
+    {
+        "name": "Shortest Path",
+        "operator": "mesh.shortest_path_pick",
+    },
+    {
+        "name": "Edge Crease",
+        "operator": "transform.edge_crease",
+    },
+    {
+        "name": "To Circle",
+        "operator": "mesh.loop_to_circle",
+    },
+    {
+        "name": "Space Edge Loops Evenly",
+        "operator": "mesh.looptools_space",
+    },
+    {
+        "name": "Symmetrize",
+        "operator": "mesh.symmetrize",
+    },
+    {
+        "name": "Flip Normals",
+        "operator": "mesh.flip_normals",
+    },
+    {
+        "name": "Recalculate Outside",
+        "operator": "mesh.normals_make_consistent",
+        "properties": {
+            "inside": False,
+        },
+    },
+)
+
+
+# ============================================================
+# MODULE IMPORT
+# ============================================================
+
 MODULES = []
 
 for _name, _label in _MODULE_NAMES:
@@ -49,7 +155,7 @@ MODULES = tuple(MODULES)
 
 
 # ============================================================
-# MODULE CONTROL
+# MODULE ENABLE / DISABLE
 # ============================================================
 
 def _set_module(name, enabled):
@@ -60,7 +166,10 @@ def _set_module(name, enabled):
     )
 
     try:
-        mod.register() if enabled else mod.unregister()
+        if enabled:
+            mod.register()
+        else:
+            mod.unregister()
 
     except Exception as e:
         print(
@@ -76,67 +185,330 @@ def _u(name):
 
 
 # ============================================================
-# QUICK FAVORITES - LOAD DEFAULT
+# QUICK FAVORITES HELPERS
 # ============================================================
 
-class TOUCHSCREEN_OT_load_default_favorites(
-    bpy.types.Operator
+def _wm_user_menu_add_operator(
+    name,
+    operator,
+    properties=None,
 ):
-    bl_idname = "view3d.touchscreen_load_default_favorites"
-    bl_label = "Load Default"
+    """
+    Add one operator to Blender's native Quick Favorites.
+
+    This deliberately uses Blender's own wm.user_menu_add
+    operator instead of creating a second Touchscreen favorites
+    menu.
+    """
+
+    properties = properties or {}
+
+    try:
+        user_menu_add = bpy.ops.wm.user_menu_add
+
+    except AttributeError:
+        print(
+            "Touchscreen: bpy.ops.wm.user_menu_add "
+            "is not available in this Blender build."
+        )
+        return False
+
+    try:
+        rna = user_menu_add.get_rna_type()
+        available = {
+            prop.identifier
+            for prop in rna.properties
+            if prop.identifier != "rna_type"
+        }
+    except Exception:
+        available = set()
+
+    kwargs = {}
+
+    # Main item information.
+    if "type" in available:
+        kwargs["type"] = 'OPERATOR'
+
+    if "name" in available:
+        kwargs["name"] = name
+
+    if "op_idname" in available:
+        kwargs["op_idname"] = operator
+
+    # Some Blender versions expose the operator enum
+    # property separately.
+    if "op_prop_enum" in available:
+        kwargs["op_prop_enum"] = ""
+
+    # Some versions use menu_idname as an optional target.
+    # Leave it unset when Blender can determine the current
+    # user-menu from the current context.
+    #
+    # This is important because Quick Favorites are context
+    # specific in Blender.
+    #
+    # We intentionally do not create our own menu here.
+
+    # --------------------------------------------------------
+    # Operator properties
+    # --------------------------------------------------------
+    #
+    # Blender's native user-menu operator stores operator
+    # properties as part of the user-menu item. Different
+    # Blender builds expose this through slightly different
+    # RNA layouts, so we first try the explicit property
+    # container if present.
+    # --------------------------------------------------------
+
+    if properties:
+
+        if "properties" in available:
+            kwargs["properties"] = str(properties)
+
+        elif "prop" in available:
+            kwargs["prop"] = str(properties)
+
+        elif "prop_value" in available:
+            kwargs["prop_value"] = str(properties)
+
+    try:
+        result = user_menu_add(
+            'EXEC_DEFAULT',
+            **kwargs
+        )
+
+        return 'FINISHED' in result
+
+    except TypeError:
+        # Fall back to the minimal operator form.
+        # This keeps the simple favorites usable on builds
+        # where the property-storage interface differs.
+        try:
+            minimal = {}
+
+            if "type" in available:
+                minimal["type"] = 'OPERATOR'
+
+            if "name" in available:
+                minimal["name"] = name
+
+            if "op_idname" in available:
+                minimal["op_idname"] = operator
+
+            result = user_menu_add(
+                'EXEC_DEFAULT',
+                **minimal
+            )
+
+            return 'FINISHED' in result
+
+        except Exception as e:
+            print(
+                f"Touchscreen: could not add "
+                f"'{name}' ({operator}): {e}"
+            )
+            return False
+
+    except Exception as e:
+        print(
+            f"Touchscreen: could not add "
+            f"'{name}' ({operator}): {e}"
+        )
+        return False
+
+
+def _load_favorites_for_current_mode(items):
+    """
+    Add the supplied predefined items to Blender's native
+    Quick Favorites for the current context.
+    """
+
+    added = 0
+
+    for item in items:
+
+        if _wm_user_menu_add_operator(
+            item["name"],
+            item["operator"],
+            item.get("properties"),
+        ):
+            added += 1
+
+    return added
+
+
+def _find_view3d_context():
+    """
+    Find a VIEW_3D context to use while populating native
+    Quick Favorites.
+    """
+
+    wm = bpy.context.window_manager
+
+    for window in wm.windows:
+
+        screen = window.screen
+
+        for area in screen.areas:
+
+            if area.type != 'VIEW_3D':
+                continue
+
+            region = next(
+                (
+                    region
+                    for region in area.regions
+                    if region.type == 'WINDOW'
+                ),
+                None
+            )
+
+            if region is not None:
+                return window, area, region
+
+    return None
+
+
+# ============================================================
+# LOAD TOUCHSCREEN FAVORITES
+# ============================================================
+
+class TOUCHSCREEN_OT_load_favorites(bpy.types.Operator):
+
+    bl_idname = "touchscreen.load_favorites"
+    bl_label = "Load Touchscreen Favorites"
     bl_description = (
-        "Load the default Touchscreen Quick Favorites"
+        "Add the predefined Touchscreen favorites "
+        "to Blender's native Quick Favorites"
     )
+
+    def invoke(self, context, event):
+
+        return context.window_manager.invoke_confirm(
+            self,
+            event
+        )
 
     def execute(self, context):
 
-        toolbar = next(
-            (
-                module
-                for name, _label, module in MODULES
-                if name == "toolbar"
-            ),
-            None
-        )
+        context_info = _find_view3d_context()
 
-        if toolbar is None:
+        if context_info is None:
             self.report(
                 {'ERROR'},
-                "Touchscreen Toolbar module is unavailable"
+                "A 3D Viewport is required to load Quick Favorites"
             )
             return {'CANCELLED'}
 
-        prefs = bpy.context.preferences.addons[
-            __package__
-        ].preferences
+        window, area, region = context_info
+
+        original_object = None
 
         try:
-            prefs.touchscreen_object_favorites = json.dumps(
-                list(toolbar.DEFAULT_OBJECT_FAVORITES)
-            )
+            original_object = context.view_layer.objects.active
+        except Exception:
+            pass
 
-            prefs.touchscreen_edit_favorites = json.dumps(
-                list(toolbar.DEFAULT_EDIT_FAVORITES)
-            )
+        added_object = 0
+        added_edit = 0
 
-            # Loading defaults means that the internal
-            # Touchscreen favorites become the active source.
-            prefs.favorites_source = 'TOUCHSCREEN'
+        # ----------------------------------------------------
+        # OBJECT FAVORITES
+        # ----------------------------------------------------
+
+        try:
+
+            with context.temp_override(
+                window=window,
+                area=area,
+                region=region,
+            ):
+
+                # Object mode is required because Blender's
+                # native user menu is context-specific.
+                if context.mode != 'OBJECT':
+
+                    if (
+                        context.active_object is not None
+                        and context.active_object.mode != 'OBJECT'
+                    ):
+                        bpy.ops.object.mode_set(
+                            mode='OBJECT'
+                        )
+
+                added_object = _load_favorites_for_current_mode(
+                    TOUCHSCREEN_OBJECT_FAVORITES
+                )
+
+                # ------------------------------------------------
+                # EDIT MESH FAVORITES
+                # ------------------------------------------------
+
+                active = context.view_layer.objects.active
+
+                if (
+                    active is not None
+                    and active.type == 'MESH'
+                ):
+
+                    bpy.ops.object.mode_set(
+                        mode='EDIT'
+                    )
+
+                    added_edit = _load_favorites_for_current_mode(
+                        TOUCHSCREEN_EDIT_FAVORITES
+                    )
+
+                    # Return to Object Mode so that the user's
+                    # original mode can be restored below.
+                    bpy.ops.object.mode_set(
+                        mode='OBJECT'
+                    )
 
         except Exception as e:
 
             self.report(
                 {'ERROR'},
-                str(e)
+                f"Could not load Touchscreen Favorites: {e}"
             )
 
             return {'CANCELLED'}
+
+        finally:
+
+            # ------------------------------------------------
+            # Restore the active object's original mode.
+            # ------------------------------------------------
+
+            try:
+
+                if (
+                    original_object is not None
+                    and original_object.name in
+                    bpy.context.view_layer.objects
+                ):
+
+                    bpy.context.view_layer.objects.active = (
+                        original_object
+                    )
+
+                    original_object.select_set(True)
+
+            except Exception:
+                pass
+
+        total = added_object + added_edit
+
+        self.report(
+            {'INFO'},
+            f"Touchscreen Favorites loaded: {total}"
+        )
 
         return {'FINISHED'}
 
 
 # ============================================================
-# ADD-ON PREFERENCES
+# ADDON PREFERENCES
 # ============================================================
 
 class TOUCHSCREEN_Preferences(
@@ -144,10 +516,6 @@ class TOUCHSCREEN_Preferences(
 ):
 
     bl_idname = __package__
-
-    # --------------------------------------------------------
-    # MODULES
-    # --------------------------------------------------------
 
     toolbar: bpy.props.BoolProperty(
         name="Toolbar",
@@ -191,54 +559,6 @@ class TOUCHSCREEN_Preferences(
         update=_u("modifiers")
     )
 
-    # --------------------------------------------------------
-    # QUICK FAVORITES SOURCE
-    # --------------------------------------------------------
-
-    favorites_source: bpy.props.EnumProperty(
-        name="Source",
-        description=(
-            "Choose which Quick Favorites system "
-            "the Touchscreen button uses"
-        ),
-        items=[
-            (
-                'TOUCHSCREEN',
-                "Touchscreen Favorites",
-                "Use the internal Touchscreen Quick Favorites"
-            ),
-            (
-                'BLENDER',
-                "Blender Favorites",
-                "Use Blender's native Quick Favorites"
-            ),
-        ],
-        default='TOUCHSCREEN',
-    )
-
-    # --------------------------------------------------------
-    # INTERNAL FAVORITES
-    #
-    # Stored as JSON strings so no separate visible list or
-    # PropertyGroup is created in Preferences.
-    # --------------------------------------------------------
-
-    touchscreen_object_favorites: bpy.props.StringProperty(
-        name="Object Favorites",
-        default="",
-        options={'HIDDEN'}
-    )
-
-    touchscreen_edit_favorites: bpy.props.StringProperty(
-        name="Edit Favorites",
-        default="",
-        options={'HIDDEN'}
-    )
-
-    # --------------------------------------------------------
-    # DRAW
-    # --------------------------------------------------------
-
     def draw(self, context):
 
         layout = self.layout
@@ -248,11 +568,13 @@ class TOUCHSCREEN_Preferences(
         # ----------------------------------------------------
 
         box = layout.box()
+
         box.label(
             text="Modules"
         )
 
         for prop, label, _ in MODULES:
+
             box.prop(
                 self,
                 prop,
@@ -290,20 +612,18 @@ class TOUCHSCREEN_Preferences(
             text="Quick Favorites"
         )
 
-        box.prop(
-            self,
-            "favorites_source",
-            text="Source"
+        box.label(
+            text=(
+                "Add Touchscreen's predefined favorites "
+                "to Blender's Quick Favorites."
+            ),
+            icon='INFO'
         )
 
-        row = box.row(
-            align=True
-        )
-
-        row.operator(
-            "view3d.touchscreen_load_default_favorites",
-            text="Load Default",
-            icon='FILE_REFRESH'
+        box.operator(
+            TOUCHSCREEN_OT_load_favorites.bl_idname,
+            text="Load Touchscreen Favorites",
+            icon='SOLO_OFF'
         )
 
 
@@ -312,52 +632,14 @@ class TOUCHSCREEN_Preferences(
 # ============================================================
 
 CLASSES = (
-    TOUCHSCREEN_OT_load_default_favorites,
+    TOUCHSCREEN_OT_load_favorites,
     TOUCHSCREEN_Preferences,
 )
 
 
-def _initialize_favorites():
-
-    prefs = bpy.context.preferences.addons[
-        __package__
-    ].preferences
-
-    toolbar = next(
-        (
-            module
-            for name, _label, module in MODULES
-            if name == "toolbar"
-        ),
-        None
-    )
-
-    if toolbar is None:
-        return
-
-    try:
-
-        if not prefs.touchscreen_object_favorites:
-
-            prefs.touchscreen_object_favorites = json.dumps(
-                list(toolbar.DEFAULT_OBJECT_FAVORITES)
-            )
-
-        if not prefs.touchscreen_edit_favorites:
-
-            prefs.touchscreen_edit_favorites = json.dumps(
-                list(toolbar.DEFAULT_EDIT_FAVORITES)
-            )
-
-    except Exception as e:
-
-        print(
-            f"Touchscreen - Quick Favorites initialization: {e}"
-        )
-
-
 def register():
 
+    # Preferences must be registered first.
     for cls in CLASSES:
 
         try:
@@ -366,12 +648,11 @@ def register():
         except ValueError:
             pass
 
-    _initialize_favorites()
-
     prefs = bpy.context.preferences.addons[
         __package__
     ].preferences
 
+    # Register enabled modules.
     for prop, _label, mod in MODULES:
 
         if getattr(
@@ -392,6 +673,7 @@ def register():
 
 def unregister():
 
+    # Unregister modules first.
     for _prop, _label, mod in reversed(MODULES):
 
         try:
@@ -400,6 +682,7 @@ def unregister():
         except Exception:
             pass
 
+    # Then unregister preferences/operators.
     for cls in reversed(CLASSES):
 
         try:
