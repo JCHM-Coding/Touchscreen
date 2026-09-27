@@ -1,1164 +1,250 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
-#
-# Touchscreen - Toolbar
-# Copyright (C) 2026
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
 import bpy
 
+# =========================================================================
+# 1. PROPIEDADES Y ESTRUCTURA DE DATOS
+# =========================================================================
 
-# ============================================================
-# DELETE
-# ============================================================
+class FavoriteItem(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(name="Nombre", default="Favorito")
+    command: bpy.props.StringProperty(name="Operador (ej: object.select_all)", default="object.select_all")
 
-class VIEW3D_OT_simple_delete(bpy.types.Operator):
-    bl_idname = "view3d.simple_delete"
-    bl_label = "Delete"
+class AddonFavoritesProperties(bpy.types.PropertyGroup):
+    object_favorites: bpy.props.CollectionProperty(type=FavoriteItem)
+    edit_favorites: bpy.props.CollectionProperty(type=FavoriteItem)
+    
+    object_fav_index: bpy.props.IntProperty()
+    edit_fav_index: bpy.props.IntProperty()
 
-    @classmethod
-    def poll(cls, context):
-        return context.mode in {
-            'OBJECT',
-            'EDIT_MESH',
-            'EDIT_CURVE',
-            'EDIT_ARMATURE'
-        }
+def get_current_favorites(context):
+    """Devuelve la colección y los identificadores según el modo activo."""
+    props = context.scene.my_addon_favorites
+    if context.mode.startswith('EDIT'):
+        return props.edit_favorites, props, "edit_fav_index"
+    return props.object_favorites, props, "object_fav_index"
 
+
+# =========================================================================
+# 2. OPERADORES
+# =========================================================================
+
+# --- Operadores de Acción Rápida (Touch / Workspace Helper) ---
+class MYADDON_OT_quick_undo(bpy.types.Operator):
+    """Deshacer última acción"""
+    bl_idname = "myaddon.quick_undo"
+    bl_label = "Deshacer"
+    
     def execute(self, context):
-        try:
-            if context.mode == 'OBJECT':
-                bpy.ops.object.delete()
-            elif context.mode == 'EDIT_MESH':
-                bpy.ops.mesh.delete(type='VERT')
-            elif context.mode == 'EDIT_CURVE':
-                bpy.ops.curve.delete()
-            elif context.mode == 'EDIT_ARMATURE':
-                bpy.ops.armature.delete()
-        except RuntimeError as e:
-            self.report({'ERROR'}, str(e))
-            return {'CANCELLED'}
-
+        bpy.ops.ed.undo()
         return {'FINISHED'}
 
-
-class VIEW3D_OT_delete_menu(bpy.types.Operator):
-    bl_idname = "view3d.delete_menu"
-    bl_label = "Delete"
-
+class MYADDON_OT_quick_redo(bpy.types.Operator):
+    """Rehacer última acción"""
+    bl_idname = "myaddon.quick_redo"
+    bl_label = "Rehacer"
+    
     def execute(self, context):
-        menus = {
-            'EDIT_MESH': 'VIEW3D_MT_edit_mesh_delete',
-            'EDIT_CURVE': 'VIEW3D_MT_edit_curve_delete',
-            'EDIT_ARMATURE': 'VIEW3D_MT_edit_armature_delete',
-        }
+        bpy.ops.ed.redo()
+        return {'FINISHED'}
 
-        menu = menus.get(context.mode)
-
-        if menu:
-            bpy.ops.wm.call_menu(name=menu)
+class MYADDON_OT_quick_delete(bpy.types.Operator):
+    """Eliminar selección activa"""
+    bl_idname = "myaddon.quick_delete"
+    bl_label = "Borrar"
+    
+    def execute(self, context):
+        if context.mode.startswith('EDIT'):
+            bpy.ops.mesh.delete(type='VERT')
         else:
-            bpy.ops.view3d.simple_delete()
-
+            bpy.ops.object.delete(use_global=False)
         return {'FINISHED'}
 
 
-# ============================================================
-# DUPLICATE
-# ============================================================
-
-class VIEW3D_OT_simple_duplicate(bpy.types.Operator):
-    bl_idname = "view3d.simple_duplicate"
-    bl_label = "Duplicate"
+# --- Operadores de Gestión de Favoritos ---
+class MYADDON_OT_execute_favorite(bpy.types.Operator):
+    """Ejecutar el comando del favorito"""
+    bl_idname = "myaddon.execute_favorite"
+    bl_label = "Ejecutar Favorito"
+    
+    command: bpy.props.StringProperty()
 
     def execute(self, context):
-        bpy.ops.object.duplicate(linked=False)
-        return {'FINISHED'}
+        if not self.command:
+            self.report({'WARNING'}, "Sin comando asignado")
+            return {'CANCELLED'}
+        try:
+            python_code = f"bpy.ops.{self.command}()"
+            exec(python_code)
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Error ejecutando {self.command}: {e}")
+            return {'CANCELLED'}
 
-
-class VIEW3D_OT_simple_duplicate_linked(bpy.types.Operator):
-    bl_idname = "view3d.simple_duplicate_linked"
-    bl_label = "Duplicate Linked"
-
-    def execute(self, context):
-        bpy.ops.object.duplicate(linked=True)
-        return {'FINISHED'}
-
-
-class VIEW3D_MT_touchscreen_duplicate(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_duplicate"
-    bl_label = "Duplicate"
-
-    def draw(self, context):
-        layout = self.layout
-
-        layout.operator(
-            "view3d.simple_duplicate",
-            text="Duplicate",
-            icon='ONIONSKIN_ON'
-        )
-
-        layout.operator(
-            "view3d.simple_duplicate_linked",
-            text="Duplicate Linked",
-            icon='ONIONSKIN_ON'
-        )
-
-
-class VIEW3D_OT_duplicate_menu(bpy.types.Operator):
-    bl_idname = "view3d.duplicate_menu"
-    bl_label = "Duplicate"
+class MYADDON_OT_add_favorite(bpy.types.Operator):
+    """Añadir favorito al modo actual"""
+    bl_idname = "myaddon.add_favorite"
+    bl_label = "Añadir Favorito"
+    
+    item_name: bpy.props.StringProperty(name="Nombre del Botón", default="Mi Favorito")
+    item_command: bpy.props.StringProperty(name="Operador (ej: object.select_all)", default="object.select_all")
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_duplicate"
-        )
-        return {'FINISHED'}
-
-
-# ============================================================
-# QUICK FAVORITES
-# ============================================================
-
-class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_favorites"
-    bl_label = "Quick Favorites"
-
-    def draw(self, context):
-        layout = self.layout
-        main_package = __package__.split('.')[0] if '.' in __package__ else __package__
-        prefs = context.preferences.addons.get(main_package)
+        fav_collection, props, index_prop = get_current_favorites(context)
+        item = fav_collection.add()
+        item.name = self.item_name
+        item.command = self.item_command
         
-        if not prefs or not hasattr(prefs, 'preferences'):
-            layout.label(text="Preferences not found")
-            return
-
-        favs = prefs.preferences.favorites
-        if not favs:
-            layout.label(text="No favorites configured")
-            return
-
-        for item in favs:
-            if item.op_type == 'CALL_MENU':
-                layout.menu(item.target, text=item.label)
-            elif item.op_type == 'EXEC_OPERATOR':
-                try:
-                    op = layout.operator(item.target, text=item.label)
-                    if item.properties.strip():
-                        pairs = item.properties.split(',')
-                        for pair in pairs:
-                            if '=' in pair:
-                                k, v = pair.split('=', 1)
-                                k = k.strip()
-                                v = eval(v.strip())
-                                setattr(op, k, v)
-                except Exception:
-                    layout.label(text=f"Invalid Op: {item.target}")
-
-
-class VIEW3D_OT_favorites_menu(bpy.types.Operator):
-    bl_idname = "view3d.favorites_menu"
-    bl_label = "Quick Favorites"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_favorites"
-        )
+        setattr(props, index_prop, len(fav_collection) - 1)
+        
+        mode_str = "Edit Mode" if context.mode.startswith('EDIT') else "Object Mode"
+        self.report({'INFO'}, f"Favorito añadido a {mode_str}")
         return {'FINISHED'}
-
-
-# ============================================================
-# JOIN
-# ============================================================
-
-class VIEW3D_OT_simple_join(bpy.types.Operator):
-    bl_idname = "view3d.simple_join"
-    bl_label = "Join"
-
-    @classmethod
-    def poll(cls, context):
-        return (
-            context.mode == 'OBJECT'
-            and context.active_object is not None
-            and len(context.selected_objects) >= 2
-        )
-
-    def execute(self, context):
-        bpy.ops.object.join()
-        return {'FINISHED'}
-
-
-# ============================================================
-# UNDO / REDO / HISTORY
-# ============================================================
-
-class VIEW3D_OT_simple_undo(bpy.types.Operator):
-    bl_idname = "view3d.simple_undo"
-    bl_label = "Undo"
-
-    @classmethod
-    def poll(cls, context):
-        try:
-            return bpy.ops.ed.undo.poll()
-        except RuntimeError:
-            return False
-
-    def execute(self, context):
-        try:
-            if not bpy.ops.ed.undo.poll():
-                return {'CANCELLED'}
-
-            bpy.ops.ed.undo()
-
-        except RuntimeError:
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
-
-
-class VIEW3D_OT_simple_redo(bpy.types.Operator):
-    bl_idname = "view3d.simple_redo"
-    bl_label = "Redo"
-
-    @classmethod
-    def poll(cls, context):
-        try:
-            return bpy.ops.ed.redo.poll()
-        except RuntimeError:
-            return False
-
-    def execute(self, context):
-        try:
-            if not bpy.ops.ed.redo.poll():
-                return {'CANCELLED'}
-
-            bpy.ops.ed.redo()
-
-        except RuntimeError:
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
-
-
-class VIEW3D_OT_simple_undo_history(bpy.types.Operator):
-    bl_idname = "view3d.simple_undo_history"
-    bl_label = "History"
 
     def invoke(self, context, event):
-        return bpy.ops.ed.undo_history('INVOKE_DEFAULT')
+        return context.window_manager.invoke_props_dialog(self)
 
-
-# ============================================================
-# REPEAT LAST
-# ============================================================
-
-class VIEW3D_OT_simple_repeat_last(bpy.types.Operator):
-    bl_idname = "view3d.simple_repeat_last"
-    bl_label = "Repeat Last"
+class MYADDON_OT_remove_favorite(bpy.types.Operator):
+    """Eliminar favorito del modo activo"""
+    bl_idname = "myaddon.remove_favorite"
+    bl_label = "Quitar Favorito"
+    
+    index: bpy.props.IntProperty(default=-1)
 
     def execute(self, context):
-        try:
-            if not bpy.ops.screen.repeat_last.poll():
-                return {'CANCELLED'}
+        fav_collection, props, index_prop = get_current_favorites(context)
+        target_index = self.index if self.index >= 0 else getattr(props, index_prop)
+        
+        if 0 <= target_index < len(fav_collection):
+            fav_collection.remove(target_index)
+            setattr(props, index_prop, max(0, target_index - 1))
+            self.report({'INFO'}, "Favorito eliminado")
+            return {'FINISHED'}
+            
+        self.report({'WARNING'}, "No hay elemento seleccionado")
+        return {'CANCELLED'}
 
-            bpy.ops.screen.repeat_last()
 
-        except (RuntimeError, AttributeError):
-            return {'CANCELLED'}
+# =========================================================================
+# 3. MENÚS Y COMPONENTES DE INTERFAZ
+# =========================================================================
 
-        return {'FINISHED'}
-
-
-# ============================================================
-# FILL
-# ============================================================
-
-class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_fill"
-    bl_label = "Fill"
+class MYADDON_MT_favorites_menu(bpy.types.Menu):
+    bl_label = "Gestionar Favoritos"
+    bl_idname = "MYADDON_MT_favorites_menu"
 
     def draw(self, context):
         layout = self.layout
-
-        layout.operator("mesh.fill", text="Fill")
-        layout.operator("mesh.fill_grid", text="Grid Fill")
-        layout.operator(
-            "mesh.bridge_edge_loops",
-            text="Bridge Edge Loops"
-        )
-
-
-class VIEW3D_OT_fill_menu(bpy.types.Operator):
-    bl_idname = "view3d.fill_menu"
-    bl_label = "Fill"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_fill"
-        )
-        return {'FINISHED'}
+        fav_collection, _, _ = get_current_favorites(context)
+        
+        layout.operator("myaddon.add_favorite", text="Añadir Nuevo...", icon='ADD')
+        layout.separator()
+        
+        if len(fav_collection) == 0:
+            layout.label(text="Sin favoritos en este modo")
+        else:
+            layout.label(text="Borrar favorito:")
+            for i, item in enumerate(fav_collection):
+                op = layout.operator("myaddon.remove_favorite", text=f"Eliminar: {item.name}", icon='TRASH')
+                op.index = i
 
 
-# ============================================================
-# SEPARATE
-# ============================================================
-
-class VIEW3D_MT_touchscreen_separate(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_separate"
-    bl_label = "Separate"
+# Panel Lateral N-Panel
+class MYADDON_PT_interface_helper(bpy.types.Panel):
+    bl_label = "Interface & Touch Helper"
+    bl_idname = "MYADDON_PT_interface_helper"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Favoritos'
 
     def draw(self, context):
         layout = self.layout
-
-        op = layout.operator(
-            "mesh.separate",
-            text="Selection"
-        )
-        op.type = 'SELECTED'
-
-        op = layout.operator(
-            "mesh.separate",
-            text="Material"
-        )
-        op.type = 'MATERIAL'
-
-        op = layout.operator(
-            "mesh.separate",
-            text="Loose Parts"
-        )
-        op.type = 'LOOSE'
-
-
-class VIEW3D_OT_separate_menu(bpy.types.Operator):
-    bl_idname = "view3d.separate_menu"
-    bl_label = "Separate"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_separate"
-        )
-        return {'FINISHED'}
-
-
-# ============================================================
-# SHOW / HIDE
-# ============================================================
-
-class VIEW3D_MT_touchscreen_show_hide(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_show_hide"
-    bl_label = "Show/Hide"
-
-    def draw(self, context):
-        layout = self.layout
-
-        op = layout.operator(
-            "object.hide_view_set",
-            text="Hide Selected"
-        )
-        op.unselected = False
-
-        op = layout.operator(
-            "object.hide_view_set",
-            text="Hide Unselected"
-        )
-        op.unselected = True
-
-        layout.operator(
-            "object.hide_view_clear",
-            text="Show All"
-        )
-
-
-class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
-    bl_idname = "view3d.show_hide_menu"
-    bl_label = "Show/Hide"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_show_hide"
-        )
-        return {'FINISHED'}
-
-
-# ============================================================
-# CLEAR SEAM
-# ============================================================
-
-class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
-    bl_idname = "view3d.touchscreen_clear_seam"
-    bl_label = "Clear Seam"
-
-    @classmethod
-    def poll(cls, context):
-        return (
-            context.mode == 'EDIT_MESH'
-            and context.active_object is not None
-        )
-
-    def execute(self, context):
-        try:
-            bpy.ops.mesh.mark_seam(clear=True)
-        except (RuntimeError, AttributeError):
-            return {'CANCELLED'}
-
-        return {'FINISHED'}
-
-
-# ============================================================
-# UNWRAP
-# ============================================================
-
-class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_unwrap"
-    bl_label = "Unwrap"
-
-    def draw(self, context):
-        layout = self.layout
-
-        layout.operator(
-            "uv.unwrap",
-            text="Unwrap"
-        )
-
-        layout.operator(
-            "uv.smart_project",
-            text="Smart UV Project"
-        )
-
-        layout.operator(
-            "uv.project_from_view",
-            text="Project From View"
-        )
-
-
-# ============================================================
-# UV MENU
-# ============================================================
-
-class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_uv"
-    bl_label = "UV"
-
-    def draw(self, context):
-        layout = self.layout
-
-        # ----------------------------------------------------
-        # MARK SEAM
-        # ----------------------------------------------------
-
-        layout.operator(
-            "uv.mark_seam",
-            text="Mark Seam"
-        )
-
-        # ----------------------------------------------------
-        # CLEAR SEAM
-        # ----------------------------------------------------
-
-        layout.operator(
-            "view3d.touchscreen_clear_seam",
-            text="Clear Seam"
-        )
-
-        # ----------------------------------------------------
-        # UNWRAP
-        # ----------------------------------------------------
-
-        layout.menu(
-            "VIEW3D_MT_touchscreen_unwrap",
-            text="Unwrap"
-        )
-
-
-class VIEW3D_OT_uv_menu(bpy.types.Operator):
-    bl_idname = "view3d.uv_menu"
-    bl_label = "UV"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(
-            name="VIEW3D_MT_touchscreen_uv"
-        )
-        return {'FINISHED'}
-
-
-# ============================================================
-# POSE MODE
-# ============================================================
-
-class VIEW3D_MT_touchscreen_pose_copy(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_pose_copy"
-    bl_label = "Copy"
-
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("pose.copy", text="Copy Selected", icon='COPYDOWN')
-        layout.operator("poselib.copy_as_asset", text="Copy as Asset", icon='ASSET_MANAGER')
-
-
-class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
-    bl_idname = "view3d.pose_copy_menu"
-    bl_label = "Copy"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_copy")
-        return {'FINISHED'}
-
-
-class VIEW3D_MT_touchscreen_pose_paste(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_pose_paste"
-    bl_label = "Paste"
-
-    def draw(self, context):
-        layout = self.layout
-
-        layout.operator("pose.paste", text="Paste Pose", icon='PASTEDOWN')
-
-        op = layout.operator(
-            "pose.paste",
-            text="Paste Pose Flipped",
-            icon='PASTEFLIPDOWN'
-        )
-        op.flipped = True
-
-
-
-class VIEW3D_OT_pose_paste_menu(bpy.types.Operator):
-    bl_idname = "view3d.pose_paste_menu"
-    bl_label = "Paste"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_paste")
-        return {'FINISHED'}
-
-
-class VIEW3D_MT_touchscreen_pose_show_hide(bpy.types.Menu):
-    bl_idname = "VIEW3D_MT_touchscreen_pose_show_hide"
-    bl_label = "Show/Hide"
-
-    def draw(self, context):
-        layout = self.layout
-
-        op = layout.operator("pose.hide", text="Hide Selected")
-        op.unselected = False
-
-        op = layout.operator("pose.hide", text="Hide Unselected")
-        op.unselected = True
-
-        layout.operator("pose.reveal", text="Show All")
-
-
-class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
-    bl_idname = "view3d.pose_show_hide_menu"
-    bl_label = "Show/Hide"
-
-    def execute(self, context):
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_show_hide")
-        return {'FINISHED'}
-
-
-class VIEW3D_OT_pose_insert_keyframe(bpy.types.Operator):
-    bl_idname = "view3d.pose_insert_keyframe"
-    bl_label = "Insert Keyframe"
-
-    def execute(self, context):
-        try:
-            bpy.ops.anim.keyframe_insert_menu(
-                'INVOKE_DEFAULT',
-                always_prompt=True
-            )
-        except (RuntimeError, AttributeError):
-            return {'CANCELLED'}
-        return {'FINISHED'}
-
-
-# ============================================================
-# TOOLBAR LAYOUT
-# ============================================================
-
-def _toolbar_layout_mode(context):
-
-    try:
-        system = bpy.context.preferences.system
-        region = context.region
-        view2d = region.view2d
-
-        view2d_scale = (
-            view2d.region_to_view(1.0, 0.0)[0]
-            -
-            view2d.region_to_view(0.0, 0.0)[0]
-        )
-
-        width_scale = (
-            region.width *
-            view2d_scale /
-            system.ui_scale
-        )
-
-    except (
-        AttributeError,
-        RuntimeError,
-        ZeroDivisionError
-    ):
-        width_scale = context.region.width
-
-    if width_scale > 120.0:
-        return 1, True
-
-    if width_scale > 80.0:
-        return 2, False
-
-    return 1, False
-
-
-def _draw_button(layout, item, show_text):
-
-    operator, icon, text, props = item
-
-    button = layout.operator(
-        operator,
-        text=text if show_text else '',
-        icon=icon
-    )
-
-    for key, value in props.items():
-        setattr(button, key, value)
-
-
-def _draw_group(layout, items, columns, show_text):
-
-    if columns == 2 and not show_text:
-
-        row = layout.row(align=True)
-        row.scale_x = 2.0
-        row.scale_y = 2.0
-
-        for item in items:
-            _draw_button(
-                row,
-                item,
-                False
-            )
-
-    else:
-
-        column = layout.column(align=True)
-        column.scale_y = 2.0
-
-        for item in items:
-            _draw_button(
-                column,
-                item,
-                show_text
-            )
-
-
-
-# ============================================================
-# MAIN TOOLBAR
-# ============================================================
-
-def draw_toolbar(self, context):
-
+        
+        # --- Sección 1: Accesos Rápidos Táctiles ---
+        box = layout.box()
+        box.label(text="Acciones Rápidas", icon='HAND')
+        row = box.row(align=True)
+        row.operator("myaddon.quick_undo", text="Undo", icon='LOOP_BACK')
+        row.operator("myaddon.quick_redo", text="Redo", icon='LOOP_FORW')
+        row.operator("myaddon.quick_delete", text="Delete", icon='TRASH')
+
+        layout.separator()
+
+        # --- Sección 2: Favoritos del Modo Activo ---
+        fav_collection, _, _ = get_current_favorites(context)
+        mode_label = "Modo Edición" if context.mode.startswith('EDIT') else "Modo Objeto"
+        
+        box_fav = layout.box()
+        header_row = box_fav.row()
+        header_row.label(text=f"Favoritos ({mode_label})", icon='BOOKMARK')
+        header_row.operator("myaddon.add_favorite", text="", icon='ADD')
+
+        if len(fav_collection) == 0:
+            box_fav.label(text="Lista vacía para este modo.", icon='INFO')
+        else:
+            for i, item in enumerate(fav_collection):
+                row = box_fav.row(align=True)
+                
+                # Botón de Ejecutar
+                op_exec = row.operator("myaddon.execute_favorite", text=item.name)
+                op_exec.command = item.command
+                
+                # Botón de Borrar (X)
+                op_rem = row.operator("myaddon.remove_favorite", text="", icon='X')
+                op_rem.index = i
+
+
+# Función de dibujo para el Header / Toolbar Superior
+def draw_toolbar_favorites(self, context):
     layout = self.layout
-    mode = context.mode
+    fav_collection, _, _ = get_current_favorites(context)
+    
+    layout.separator()
+    
+    # Accesos rápidos en la barra
+    row_quick = layout.row(align=True)
+    row_quick.operator("myaddon.quick_undo", text="", icon='LOOP_BACK')
+    row_quick.operator("myaddon.quick_redo", text="", icon='LOOP_FORW')
+    
+    layout.separator()
 
-    columns, show_text = _toolbar_layout_mode(context)
+    # Botones de Favoritos del Modo Activo
+    for item in fav_collection:
+        op = layout.operator("myaddon.execute_favorite", text=item.name)
+        op.command = item.command
 
-    # --------------------------------------------------------
-    # OBJECT MODE
-    # --------------------------------------------------------
-
-    if mode == 'OBJECT':
-
-        groups = [
-            [
-                (
-                    'view3d.delete_menu',
-                    'TRASH',
-                    'Delete',
-                    {}
-                ),
-                (
-                    'object.select_all',
-                    'SCENE_DATA',
-                    'Select All',
-                    {'action': 'SELECT'}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.duplicate_menu',
-                    'ONIONSKIN_ON',
-                    'Duplicate',
-                    {}
-                ),
-                (
-                    'view3d.favorites_menu',
-                    'SOLO_OFF',
-                    'Quick Favorites',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_join',
-                    'ADD',
-                    'Join',
-                    {}
-                ),
-                (
-                    'view3d.show_hide_menu',
-                    'HIDE_OFF',
-                    'Show/Hide',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_undo',
-                    'LOOP_BACK',
-                    'Undo',
-                    {}
-                ),
-                (
-                    'view3d.simple_redo',
-                    'LOOP_FORWARDS',
-                    'Redo',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_repeat_last',
-                    'RECOVER_LAST',
-                    'Repeat Last',
-                    {}
-                ),
-                (
-                    'view3d.simple_undo_history',
-                    'HELP',
-                    'History',
-                    {}
-                ),
-            ],
-        ]
-
-    # --------------------------------------------------------
-    # EDIT MESH
-    # --------------------------------------------------------
-
-    elif mode == 'EDIT_MESH':
-
-        groups = [
-            [
-                (
-                    'view3d.delete_menu',
-                    'TRASH',
-                    'Delete',
-                    {}
-                ),
-                (
-                    'mesh.select_all',
-                    'SCENE_DATA',
-                    'Select All',
-                    {'action': 'SELECT'}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.uv_menu',
-                    'MOD_UVPROJECT',
-                    'UV',
-                    {}
-                ),
-                (
-                    'view3d.favorites_menu',
-                    'SOLO_OFF',
-                    'Quick Favorites',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.fill_menu',
-                    'MESH_GRID',
-                    'Fill',
-                    {}
-                ),
-                (
-                    'view3d.separate_menu',
-                    'RESTRICT_COLOR_OFF',
-                    'Separate',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_undo',
-                    'LOOP_BACK',
-                    'Undo',
-                    {}
-                ),
-                (
-                    'view3d.simple_redo',
-                    'LOOP_FORWARDS',
-                    'Redo',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_repeat_last',
-                    'RECOVER_LAST',
-                    'Repeat Last',
-                    {}
-                ),
-                (
-                    'view3d.simple_undo_history',
-                    'HELP',
-                    'History',
-                    {}
-                ),
-            ],
-        ]
-
-    # --------------------------------------------------------
-    # EDIT CURVE / ARMATURE
-    # --------------------------------------------------------
-
-    elif mode in {
-        'EDIT_CURVE',
-        'EDIT_ARMATURE'
-    }:
-
-        select = (
-            'curve.select_all'
-            if mode == 'EDIT_CURVE'
-            else 'armature.select_all'
-        )
-
-        groups = [
-            [
-                (
-                    'view3d.delete_menu',
-                    'TRASH',
-                    'Delete',
-                    {}
-                ),
-                (
-                    select,
-                    'SCENE_DATA',
-                    'Select All',
-                    {'action': 'SELECT'}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_undo',
-                    'LOOP_BACK',
-                    'Undo',
-                    {}
-                ),
-                (
-                    'view3d.simple_redo',
-                    'LOOP_FORWARDS',
-                    'Redo',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_repeat_last',
-                    'RECOVER_LAST',
-                    'Repeat Last',
-                    {}
-                ),
-                (
-                    'view3d.simple_undo_history',
-                    'HELP',
-                    'History',
-                    {}
-                ),
-            ],
-        ]
-
-    # --------------------------------------------------------
-    # POSE MODE
-    # --------------------------------------------------------
-
-    elif mode == 'POSE':
-
-        groups = [
-            [
-                (
-                    'view3d.pose_copy_menu',
-                    'COPYDOWN',
-                    'Copy',
-                    {}
-                ),
-                (
-                    'view3d.pose_paste_menu',
-                    'PASTEDOWN',
-                    'Paste',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.pose_insert_keyframe',
-                    'KEY_HLT',
-                    'Insert Keyframe',
-                    {}
-                ),
-                (
-                    'view3d.pose_show_hide_menu',
-                    'HIDE_OFF',
-                    'Show/Hide',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_undo',
-                    'LOOP_BACK',
-                    'Undo',
-                    {}
-                ),
-                (
-                    'view3d.simple_redo',
-                    'LOOP_FORWARDS',
-                    'Redo',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_repeat_last',
-                    'RECOVER_LAST',
-                    'Repeat Last',
-                    {}
-                ),
-                (
-                    'view3d.simple_undo_history',
-                    'HELP',
-                    'History',
-                    {}
-                ),
-            ],
-        ]
-
-    # --------------------------------------------------------
-    # DRAW MODE (GREASE PENCIL)
-    # --------------------------------------------------------
-
-    elif mode == 'PAINT_GREASE_PENCIL':
-
-        groups = [
-            [
-                (
-                    'view3d.simple_undo',
-                    'LOOP_BACK',
-                    'Undo',
-                    {}
-                ),
-                (
-                    'view3d.simple_redo',
-                    'LOOP_FORWARDS',
-                    'Redo',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_undo_history',
-                    'HELP',
-                    'History',
-                    {}
-                ),
-            ],
-        ]
-
-    # --------------------------------------------------------
-    # SCULPT / PAINT
-    # --------------------------------------------------------
-
-    elif mode in {
-        'SCULPT',
-        'PAINT_VERTEX',
-        'PAINT_WEIGHT',
-        'PAINT_TEXTURE'
-    }:
-
-        groups = [
-            [
-                (
-                    'view3d.simple_undo',
-                    'LOOP_BACK',
-                    'Undo',
-                    {}
-                ),
-                (
-                    'view3d.simple_redo',
-                    'LOOP_FORWARDS',
-                    'Redo',
-                    {}
-                ),
-            ],
-
-            [
-                (
-                    'view3d.simple_undo_history',
-                    'HELP',
-                    'History',
-                    {}
-                ),
-            ],
-        ]
-
-    else:
-        return
-
-    # --------------------------------------------------------
-    # DRAW GROUPS
-    # --------------------------------------------------------
-
-    if columns == 2 and not show_text:
-
-        # One continuous 2-column grid for the whole toolbar.
-        # This removes the gaps between individual group rows.
-        grid = layout.grid_flow(
-            row_major=True,
-            columns=2,
-            even_columns=True,
-            even_rows=False,
-            align=True
-        )
-
-        grid.scale_y = 2.0
-
-        for group in groups:
-            for item in group:
-                _draw_button(
-                    grid,
-                    item,
-                    False
-                )
-
-    else:
-
-        # One continuous column, just like the native Blender toolbar.
-        # Draw every button consecutively so there is no gap between groups.
-        column = layout.column(
-            align=True
-        )
-
-        column.scale_y = 2.0
-
-        for group in groups:
-            for item in group:
-                _draw_button(
-                    column,
-                    item,
-                    show_text
-                )
+    # Menú desplegable para añadir/borrar rápidamente
+    layout.menu("MYADDON_MT_favorites_menu", text="", icon='DOWNARROW_HLT')
 
 
-# ============================================================
-# REGISTER
-# ============================================================
+# =========================================================================
+# 4. REGISTRO DEL ADDON
+# =========================================================================
 
-CLASSES = (
-    VIEW3D_OT_simple_delete,
-    VIEW3D_OT_delete_menu,
-
-    VIEW3D_OT_simple_duplicate,
-    VIEW3D_OT_simple_duplicate_linked,
-    VIEW3D_MT_touchscreen_duplicate,
-    VIEW3D_OT_duplicate_menu,
-
-    VIEW3D_MT_touchscreen_favorites,
-    VIEW3D_OT_favorites_menu,
-
-    VIEW3D_OT_simple_join,
-
-    VIEW3D_OT_simple_undo,
-    VIEW3D_OT_simple_redo,
-    VIEW3D_OT_simple_undo_history,
-    VIEW3D_OT_simple_repeat_last,
-
-    VIEW3D_MT_touchscreen_pose_copy,
-    VIEW3D_OT_pose_copy_menu,
-    VIEW3D_MT_touchscreen_pose_paste,
-    VIEW3D_OT_pose_paste_menu,
-    VIEW3D_MT_touchscreen_pose_show_hide,
-    VIEW3D_OT_pose_show_hide_menu,
-    VIEW3D_OT_pose_insert_keyframe,
-
-    VIEW3D_MT_touchscreen_fill,
-    VIEW3D_OT_fill_menu,
-
-    VIEW3D_MT_touchscreen_separate,
-    VIEW3D_OT_separate_menu,
-
-    VIEW3D_MT_touchscreen_show_hide,
-    VIEW3D_OT_show_hide_menu,
-
-    VIEW3D_OT_touchscreen_clear_seam,
-    VIEW3D_MT_touchscreen_unwrap,
-
-    VIEW3D_MT_touchscreen_uv,
-    VIEW3D_OT_uv_menu,
+classes = (
+    FavoriteItem,
+    AddonFavoritesProperties,
+    MYADDON_OT_quick_undo,
+    MYADDON_OT_quick_redo,
+    MYADDON_OT_quick_delete,
+    MYADDON_OT_execute_favorite,
+    MYADDON_OT_add_favorite,
+    MYADDON_OT_remove_favorite,
+    MYADDON_MT_favorites_menu,
+    MYADDON_PT_interface_helper,
 )
 
-
-# ============================================================
-# REGISTER / UNREGISTER
-# ============================================================
-
 def register():
-
-    for cls in CLASSES:
-        try:
-            bpy.utils.register_class(cls)
-        except ValueError:
-            pass
-
-    try:
-        bpy.types.VIEW3D_PT_tools_active.append(
-            draw_toolbar
-        )
-    except Exception:
-        pass
-
+    for cls in classes:
+        bpy.utils.register_class(cls)
+        
+    bpy.types.Scene.my_addon_favorites = bpy.props.PointerProperty(type=AddonFavoritesProperties)
+    bpy.types.VIEW3D_HT_header.append(draw_toolbar_favorites)
 
 def unregister():
+    bpy.types.VIEW3D_HT_header.remove(draw_toolbar_favorites)
+    del bpy.types.Scene.my_addon_favorites
+    
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
 
-    try:
-        bpy.types.VIEW3D_PT_tools_active.remove(
-            draw_toolbar
-        )
-    except Exception:
-        pass
-
-    for cls in reversed(CLASSES):
-        try:
-            bpy.utils.unregister_class(cls)
-        except Exception:
-            pass
+if __name__ == "__main__":
+    register()
