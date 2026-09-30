@@ -26,6 +26,7 @@ _PATCH_MARKER = "_touchscreen_original_layout_detect"
 def _get_preferences():
 
     try:
+
         addon_name = __package__.split(".")[0]
 
         addon = bpy.context.preferences.addons.get(
@@ -38,6 +39,7 @@ def _get_preferences():
         return addon.preferences
 
     except Exception:
+
         return None
 
 
@@ -83,6 +85,12 @@ def _native_toolbar_layout_detect(
 
     # --------------------------------------------------------
     # Check preference.
+    #
+    # Blender Default:
+    # restore/use Blender's original behavior.
+    #
+    # 4 Columns:
+    # use Touchscreen automatic layout.
     # --------------------------------------------------------
 
     prefs = _get_preferences()
@@ -107,7 +115,7 @@ def _native_toolbar_layout_detect(
         )
 
     # --------------------------------------------------------
-    # Calculate width.
+    # Calculate available width.
     # --------------------------------------------------------
 
     try:
@@ -116,9 +124,15 @@ def _native_toolbar_layout_detect(
         view2d = region.view2d
 
         view2d_scale = (
-            view2d.region_to_view(1.0, 0.0)[0]
+            view2d.region_to_view(
+                1.0,
+                0.0
+            )[0]
             -
-            view2d.region_to_view(0.0, 0.0)[0]
+            view2d.region_to_view(
+                0.0,
+                0.0
+            )[0]
         )
 
         width_scale = (
@@ -136,13 +150,9 @@ def _native_toolbar_layout_detect(
         width_scale = region.width
 
     # --------------------------------------------------------
-    # Touchscreen layout
+    # Touchscreen automatic layout
     #
-    # <= 80    -> 1 column
-    # <= 120   -> 2 columns
-    # <= 160   -> 3 columns
-    # <= 185   -> 4 columns
-    # > 185    -> 1 column + text
+    # 1 -> 2 -> 3 -> 4 -> text
     # --------------------------------------------------------
 
     if width_scale <= 80.0:
@@ -218,7 +228,9 @@ def _install_native_toolbar_patch():
 
     if existing_original is not None:
 
-        _ORIGINAL_LAYOUT_DETECT = existing_original
+        _ORIGINAL_LAYOUT_DETECT = (
+            existing_original
+        )
 
     else:
 
@@ -296,6 +308,9 @@ def update_native_toolbar_layout():
 
     # --------------------------------------------------------
     # Install / remove native toolbar patch.
+    #
+    # Only "4 Columns" activates the Touchscreen
+    # automatic layout for Blender's native toolbar.
     # --------------------------------------------------------
 
     if (
@@ -305,7 +320,11 @@ def update_native_toolbar_layout():
             True
         )
         and
-        prefs.native_toolbar_layout == '4_COLUMNS'
+        getattr(
+            prefs,
+            "native_toolbar_layout",
+            "BLENDER"
+        ) == '4_COLUMNS'
     ):
 
         _install_native_toolbar_patch()
@@ -325,9 +344,11 @@ def update_native_toolbar_layout():
             for area in screen.areas:
 
                 if area.type == 'VIEW_3D':
+
                     area.tag_redraw()
 
     except Exception:
+
         pass
 
 
@@ -557,9 +578,11 @@ class VIEW3D_OT_simple_undo(bpy.types.Operator):
     def poll(cls, context):
 
         try:
+
             return bpy.ops.ed.undo.poll()
 
         except RuntimeError:
+
             return False
 
     def execute(self, context):
@@ -572,6 +595,7 @@ class VIEW3D_OT_simple_undo(bpy.types.Operator):
             bpy.ops.ed.undo()
 
         except RuntimeError:
+
             return {'CANCELLED'}
 
         return {'FINISHED'}
@@ -586,9 +610,11 @@ class VIEW3D_OT_simple_redo(bpy.types.Operator):
     def poll(cls, context):
 
         try:
+
             return bpy.ops.ed.redo.poll()
 
         except RuntimeError:
+
             return False
 
     def execute(self, context):
@@ -601,6 +627,7 @@ class VIEW3D_OT_simple_redo(bpy.types.Operator):
             bpy.ops.ed.redo()
 
         except RuntimeError:
+
             return {'CANCELLED'}
 
         return {'FINISHED'}
@@ -1057,9 +1084,15 @@ def _toolbar_width_scale(context):
         view2d = region.view2d
 
         view2d_scale = (
-            view2d.region_to_view(1.0, 0.0)[0]
+            view2d.region_to_view(
+                1.0,
+                0.0
+            )[0]
             -
-            view2d.region_to_view(0.0, 0.0)[0]
+            view2d.region_to_view(
+                0.0,
+                0.0
+            )[0]
         )
 
         width_scale = (
@@ -1075,9 +1108,11 @@ def _toolbar_width_scale(context):
     ):
 
         try:
+
             width_scale = context.region.width
 
         except AttributeError:
+
             width_scale = 0.0
 
     return width_scale
@@ -1085,29 +1120,50 @@ def _toolbar_width_scale(context):
 
 def _toolbar_layout_mode(context):
 
-    # --------------------------------------------------------
-    # Keep the Touchscreen toolbar synchronized with the
-    # native Blender toolbar layout preference.
-    #
-    # When "4 Columns" is selected, both toolbars use
-    # exactly 4 columns.
-    # --------------------------------------------------------
-
     prefs = _get_preferences()
 
+    # --------------------------------------------------------
+    # Blender Default
+    #
+    # Keep the original Touchscreen toolbar behavior:
+    #
+    # 1 -> 2 -> text
+    #
+    # The native Blender toolbar itself is not patched.
+    # --------------------------------------------------------
+
     if (
-        prefs is not None
-        and getattr(
+        prefs is None
+        or
+        getattr(
             prefs,
             "native_toolbar_layout",
             "BLENDER"
-        ) == '4_COLUMNS'
+        ) == 'BLENDER'
     ):
-        return 4, False
+
+        width_scale = _toolbar_width_scale(
+            context
+        )
+
+        if width_scale <= 80.0:
+
+            return 1, False
+
+        elif width_scale <= 120.0:
+
+            return 2, False
+
+        else:
+
+            return 1, True
 
     # --------------------------------------------------------
-    # Otherwise keep the existing automatic Touchscreen
-    # toolbar layout.
+    # 4 Columns
+    #
+    # Touchscreen automatic layout:
+    #
+    # 1 -> 2 -> 3 -> 4 -> text
     # --------------------------------------------------------
 
     width_scale = _toolbar_width_scale(
@@ -1115,18 +1171,24 @@ def _toolbar_layout_mode(context):
     )
 
     if width_scale <= 80.0:
+
         return 1, False
 
-    if width_scale <= 120.0:
+    elif width_scale <= 120.0:
+
         return 2, False
 
-    if width_scale <= 160.0:
+    elif width_scale <= 160.0:
+
         return 3, False
 
-    if width_scale <= 185.0:
+    elif width_scale <= 185.0:
+
         return 4, False
 
-    return 1, True
+    else:
+
+        return 1, True
 
 
 # ============================================================
@@ -1168,8 +1230,10 @@ def draw_toolbar(
     layout = self.layout
     mode = context.mode
 
-    # Touchscreen toolbar always uses
-    # the automatic 1 / 2 / 3 / 4 / text layout.
+    # --------------------------------------------------------
+    # Toolbar layout
+    # --------------------------------------------------------
+
     columns, show_text = _toolbar_layout_mode(
         context
     )
@@ -1664,6 +1728,7 @@ def register():
             )
 
         except ValueError:
+
             pass
 
     try:
@@ -1673,6 +1738,7 @@ def register():
         )
 
     except Exception:
+
         pass
 
     # Apply the current native toolbar preference.
@@ -1691,6 +1757,7 @@ def unregister():
         )
 
     except Exception:
+
         pass
 
     for cls in reversed(CLASSES):
@@ -1702,4 +1769,5 @@ def unregister():
             )
 
         except Exception:
+
             pass

@@ -33,10 +33,12 @@ _MODULE_NAMES = (
 MODULES = []
 
 for _name, _label in _MODULE_NAMES:
+
     _module = importlib.import_module(
         f".{_name}",
         __package__
     )
+
     MODULES.append(
         (_name, _label, _module)
     )
@@ -57,18 +59,22 @@ def _set_module(name, enabled):
     )
 
     try:
+
         if enabled:
             mod.register()
+
         else:
             mod.unregister()
 
     except Exception as e:
+
         print(
             f"Touchscreen - {name}: {e}"
         )
 
 
 def _u(name):
+
     return lambda self, context: _set_module(
         name,
         getattr(self, name)
@@ -94,9 +100,11 @@ def _update_toolbar_layout(self, context):
         return
 
     try:
+
         toolbar_module.update_native_toolbar_layout()
 
     except Exception as e:
+
         print(
             f"Touchscreen - Toolbar Layout: {e}"
         )
@@ -194,9 +202,13 @@ class TOUCHSCREEN_Preferences(
         # ----------------------------------------------------
 
         box = layout.box()
-        box.label(text="Modules")
+
+        box.label(
+            text="Modules"
+        )
 
         for prop, label, _ in MODULES:
+
             box.prop(
                 self,
                 prop,
@@ -208,9 +220,14 @@ class TOUCHSCREEN_Preferences(
         # ----------------------------------------------------
 
         box = layout.box()
-        box.label(text="Toolbar")
 
-        row = box.row(align=True)
+        box.label(
+            text="Toolbar"
+        )
+
+        row = box.row(
+            align=True
+        )
 
         row.prop(
             self,
@@ -223,11 +240,14 @@ class TOUCHSCREEN_Preferences(
         # ----------------------------------------------------
 
         box = layout.box()
+
         box.label(
             text="Viewport Controls Size"
         )
 
-        row = box.row(align=True)
+        row = box.row(
+            align=True
+        )
 
         row.prop(
             self,
@@ -249,7 +269,10 @@ CLASSES = (
 def register():
 
     for cls in CLASSES:
-        bpy.utils.register_class(cls)
+
+        bpy.utils.register_class(
+            cls
+        )
 
     prefs = bpy.context.preferences.addons[
         __package__
@@ -264,9 +287,11 @@ def register():
         ):
 
             try:
+
                 mod.register()
 
             except Exception as e:
+
                 print(
                     f"Touchscreen - {prop}: {e}"
                 )
@@ -281,6 +306,7 @@ def unregister():
     for _prop, _label, mod in reversed(MODULES):
 
         try:
+
             mod.unregister()
 
         except Exception:
@@ -289,7 +315,10 @@ def unregister():
     for cls in reversed(CLASSES):
 
         try:
-            bpy.utils.unregister_class(cls)
+
+            bpy.utils.unregister_class(
+                cls
+            )
 
         except Exception:
             pass
