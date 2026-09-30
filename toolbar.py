@@ -1085,6 +1085,31 @@ def _toolbar_width_scale(context):
 
 def _toolbar_layout_mode(context):
 
+    # --------------------------------------------------------
+    # Keep the Touchscreen toolbar synchronized with the
+    # native Blender toolbar layout preference.
+    #
+    # When "4 Columns" is selected, both toolbars use
+    # exactly 4 columns.
+    # --------------------------------------------------------
+
+    prefs = _get_preferences()
+
+    if (
+        prefs is not None
+        and getattr(
+            prefs,
+            "native_toolbar_layout",
+            "BLENDER"
+        ) == '4_COLUMNS'
+    ):
+        return 4, False
+
+    # --------------------------------------------------------
+    # Otherwise keep the existing automatic Touchscreen
+    # toolbar layout.
+    # --------------------------------------------------------
+
     width_scale = _toolbar_width_scale(
         context
     )
