@@ -10,7 +10,7 @@
 
 import bpy
 
-from bpy.types import ToolSelectPanelHelper
+from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 
 
 # ============================================================
