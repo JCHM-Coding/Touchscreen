@@ -9,6 +9,7 @@
 # (at your option) any later version.
 
 import bpy
+import bmesh
 
 from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 
@@ -17,6 +18,10 @@ _ORIGINAL_LAYOUT_DETECT = None
 _PATCH_INSTALLED = False
 _PATCH_MARKER = "_touchscreen_original_layout_detect"
 
+
+# ------------------------------------------------------------------------
+# PREFERENCES
+# ------------------------------------------------------------------------
 
 def _get_preferences():
     try:
@@ -93,7 +98,7 @@ def _native_toolbar_layout_detect(layout, region, scale_y):
     ):
         width_scale = region.width
 
-    # Touchscreen responsive layout:
+    # Touchscreen automatic layout:
     #
     # 1 column
     # 2 columns
@@ -629,9 +634,7 @@ class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            bpy.ops.mesh.mark_seam(
-                clear=True
-            )
+            bpy.ops.mesh.mark_seam(clear=True)
 
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
@@ -701,6 +704,226 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_uv"
         )
+
+        return {'FINISHED'}
+
+
+# ------------------------------------------------------------------------
+# EDIT MODE - SELECT
+# ------------------------------------------------------------------------
+
+class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_edit_select"
+    bl_label = "Select"
+
+    def draw(self, context):
+        layout = self.layout
+
+        # Edge Rings
+        op = layout.operator(
+            "mesh.loop_multi_select",
+            text="Edge Rings"
+        )
+        op.ring = True
+
+        # Boundary of Selected
+        layout.operator(
+            "mesh.region_to_loop",
+            text="Boundary of Selected"
+        )
+
+        # Shortest Path
+        layout.operator(
+            "view3d.touchscreen_shortest_path",
+            text="Shortest Path"
+        )
+
+        # Select Mirror
+        layout.operator(
+            "mesh.select_mirror",
+            text="Select Mirror"
+        )
+
+        # Inner Region
+        layout.operator(
+            "mesh.loop_to_region",
+            text="Inner Region"
+        )
+
+        # Select Linked
+        layout.operator(
+            "mesh.select_linked",
+            text="Select Linked"
+        )
+
+
+class VIEW3D_OT_edit_select_menu(bpy.types.Operator):
+    bl_idname = "view3d.edit_select_menu"
+    bl_label = "Select"
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
+        )
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_edit_select"
+        )
+
+        return {'FINISHED'}
+
+
+# ------------------------------------------------------------------------
+# EDIT MODE - SHORTEST PATH
+# ------------------------------------------------------------------------
+
+class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
+    bl_idname = "view3d.touchscreen_shortest_path"
+    bl_label = "Shortest Path"
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
+            and context.active_object.type == 'MESH'
+        )
+
+    def execute(self, context):
+        obj = context.active_object
+
+        if obj is None or obj.type != 'MESH':
+            return {'CANCELLED'}
+
+        bm = bmesh.from_edit_mesh(obj.data)
+
+        select_mode = tuple(
+            context.tool_settings.mesh_select_mode
+        )
+
+        # --------------------------------------------------------------
+        # Vertex mode
+        # --------------------------------------------------------------
+
+        if select_mode == (True, False, False):
+            elements = [
+                vert
+                for vert in bm.verts
+                if vert.select
+            ]
+
+            if len(elements) != 2:
+                return {'CANCELLED'}
+
+            first, second = elements
+
+            # Already directly connected by an edge.
+            connected = any(
+                edge.other_vert(first) == second
+                for edge in first.link_edges
+            )
+
+        # --------------------------------------------------------------
+        # Edge mode
+        # --------------------------------------------------------------
+
+        elif select_mode == (False, True, False):
+            elements = [
+                edge
+                for edge in bm.edges
+                if edge.select
+            ]
+
+            if len(elements) != 2:
+                return {'CANCELLED'}
+
+            first, second = elements
+
+            # Two edges are directly connected when they share
+            # a vertex.
+            connected = bool(
+                set(first.verts) &
+                set(second.verts)
+            )
+
+        # --------------------------------------------------------------
+        # Face mode
+        # --------------------------------------------------------------
+
+        elif select_mode == (False, False, True):
+            elements = [
+                face
+                for face in bm.faces
+                if face.select
+            ]
+
+            if len(elements) != 2:
+                return {'CANCELLED'}
+
+            first, second = elements
+
+            # Two faces are directly connected when they share
+            # an edge.
+            connected = bool(
+                set(first.edges) &
+                set(second.edges)
+            )
+
+        else:
+            return {'CANCELLED'}
+
+        # --------------------------------------------------------------
+        # Don't run if the two elements are already connected.
+        # --------------------------------------------------------------
+
+        if connected:
+            return {'CANCELLED'}
+
+        # --------------------------------------------------------------
+        # Establish the first element as the active/source element.
+        # --------------------------------------------------------------
+
+        for vert in bm.verts:
+            vert.select_set(False)
+
+        for edge in bm.edges:
+            edge.select_set(False)
+
+        for face in bm.faces:
+            face.select_set(False)
+
+        first.select_set(True)
+
+        bm.select_history.clear()
+        bm.select_history.add(first)
+
+        bmesh.update_edit_mesh(
+            obj.data,
+            loop_triangles=False,
+            destructive=False
+        )
+
+        # --------------------------------------------------------------
+        # Execute Blender's Shortest Path operator.
+        # --------------------------------------------------------------
+
+        try:
+            result = bpy.ops.mesh.shortest_path_pick(
+                edge_mode='SELECT',
+                use_face_step=False,
+                use_topology_distance=False,
+                use_fill=False,
+                index=second.index
+            )
+
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
+
+        if 'FINISHED' not in result:
+            return {'CANCELLED'}
 
         return {'FINISHED'}
 
@@ -936,7 +1159,10 @@ def draw_toolbar(self, context):
         context
     )
 
+    # --------------------------------------------------------------------
     # OBJECT MODE
+    # --------------------------------------------------------------------
+
     if mode == 'OBJECT':
         groups = [
             [
@@ -1011,7 +1237,10 @@ def draw_toolbar(self, context):
             ],
         ]
 
+    # --------------------------------------------------------------------
     # EDIT MESH
+    # --------------------------------------------------------------------
+
     elif mode == 'EDIT_MESH':
         groups = [
             [
@@ -1036,47 +1265,55 @@ def draw_toolbar(self, context):
                     {}
                 ),
                 (
+                    'view3d.edit_select_menu',
+                    'RESTRICT_SELECT_OFF',
+                    'Select',
+                    {}
+                ),
+            ],
+            [
+                (
                     'view3d.favorites_menu',
                     'SOLO_OFF',
                     'Quick Favorites',
                     {}
                 ),
-            ],
-            [
                 (
                     'view3d.fill_menu',
                     'MESH_GRID',
                     'Fill',
                     {}
                 ),
+            ],
+            [
                 (
                     'view3d.separate_menu',
                     'RESTRICT_COLOR_OFF',
                     'Separate',
                     {}
                 ),
-            ],
-            [
                 (
                     'view3d.simple_undo',
                     'LOOP_BACK',
                     'Undo',
                     {}
                 ),
+            ],
+            [
                 (
                     'view3d.simple_redo',
                     'LOOP_FORWARDS',
                     'Redo',
                     {}
                 ),
-            ],
-            [
                 (
                     'view3d.simple_repeat_last',
                     'RECOVER_LAST',
                     'Repeat Last',
                     {}
                 ),
+            ],
+            [
                 (
                     'view3d.simple_undo_history',
                     'HELP',
@@ -1086,7 +1323,10 @@ def draw_toolbar(self, context):
             ],
         ]
 
+    # --------------------------------------------------------------------
     # EDIT CURVE / EDIT ARMATURE
+    # --------------------------------------------------------------------
+
     elif mode in {
         'EDIT_CURVE',
         'EDIT_ARMATURE'
@@ -1142,7 +1382,10 @@ def draw_toolbar(self, context):
             ],
         ]
 
+    # --------------------------------------------------------------------
     # POSE MODE
+    # --------------------------------------------------------------------
+
     elif mode == 'POSE':
         groups = [
             [
@@ -1203,7 +1446,10 @@ def draw_toolbar(self, context):
             ],
         ]
 
+    # --------------------------------------------------------------------
     # GREASE PENCIL DRAW
+    # --------------------------------------------------------------------
+
     elif mode == 'PAINT_GREASE_PENCIL':
         groups = [
             [
@@ -1230,7 +1476,10 @@ def draw_toolbar(self, context):
             ],
         ]
 
+    # --------------------------------------------------------------------
     # SCULPT / PAINT
+    # --------------------------------------------------------------------
+
     elif mode in {
         'SCULPT',
         'PAINT_VERTEX',
@@ -1357,6 +1606,10 @@ CLASSES = (
     VIEW3D_MT_touchscreen_unwrap,
     VIEW3D_MT_touchscreen_uv,
     VIEW3D_OT_uv_menu,
+
+    VIEW3D_MT_touchscreen_edit_select,
+    VIEW3D_OT_edit_select_menu,
+    VIEW3D_OT_touchscreen_shortest_path,
 )
 
 
