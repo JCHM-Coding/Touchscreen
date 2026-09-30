@@ -1628,7 +1628,7 @@ def draw_toolbar(
         grid = layout.grid_flow(
             row_major=True,
             columns=columns,
-            even_columns=True,
+            even_columns=False,
             even_rows=False,
             align=True
         )
