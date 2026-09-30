@@ -407,6 +407,52 @@ class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
 
 
 # ============================================================
+# UV SELECT MENU
+# ============================================================
+
+class VIEW3D_MT_touchscreen_uv_select(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_uv_select"
+    bl_label = "Select"
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator(
+            "mesh.edgering_select",
+            text="Edge Rings"
+        )
+
+        layout.operator(
+            "mesh.region_to_loop",
+            text="Boundary of Selected"
+        )
+
+        layout.separator()
+
+        layout.operator(
+            "mesh.shortest_path_select",
+            text="Shortest Path"
+        )
+
+        layout.operator(
+            "mesh.select_mirror",
+            text="Select Mirror"
+        )
+
+        layout.operator(
+            "mesh.loop_to_region",
+            text="Inner Region"
+        )
+
+        layout.separator()
+
+        layout.operator(
+            "mesh.select_linked",
+            text="Select Linked"
+        )
+
+
+# ============================================================
 # UV MENU
 # ============================================================
 
@@ -416,6 +462,15 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
+
+        # ----------------------------------------------------
+        # SELECT
+        # ----------------------------------------------------
+
+        layout.menu(
+            "VIEW3D_MT_touchscreen_uv_select",
+            text="Select"
+        )
 
         # ----------------------------------------------------
         # MARK SEAM
@@ -1094,6 +1149,7 @@ CLASSES = (
 
     VIEW3D_OT_touchscreen_clear_seam,
     VIEW3D_MT_touchscreen_unwrap,
+    VIEW3D_MT_touchscreen_uv_select,
 
     VIEW3D_MT_touchscreen_uv,
     VIEW3D_OT_uv_menu,

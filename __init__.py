@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Touchscreen - modular touch-screen helpers
-# Copyright (C) 2026 OpenAI
+# Copyright (C) 2026 JCHM
 
-bl_info={"name":"Touchscreen","author":"OpenAI","version":(1,0,0),"blender":(5,3,0),"location":"Edit > Preferences > Add-ons","description":"Touch-screen helpers organized into independently enabled modules.","category":"3D View","license":"GPL-3.0-or-later"}
+bl_info={"name":"Touchscreen","author":"JCHM","version":(1,0,1),"blender":(5,3,0),"location":"Edit > Preferences > Add-ons","description":"Touch-screen helpers organized into independently enabled modules.","category":"3D View","license":"GPL-3.0-or-later"}
 
 import bpy
 import importlib
