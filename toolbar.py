@@ -10,6 +10,318 @@
 
 import bpy
 
+from bpy.types import ToolSelectPanelHelper
+
+
+# ============================================================
+# NATIVE BLENDER TOOLBAR PATCH
+# ============================================================
+
+_ORIGINAL_LAYOUT_DETECT = None
+_PATCH_INSTALLED = False
+
+_PATCH_MARKER = "_touchscreen_original_layout_detect"
+
+
+def _get_preferences():
+    try:
+        addon_name = __package__.split(".")[0]
+        addon = bpy.context.preferences.addons.get(addon_name)
+
+        if addon is None:
+            return None
+
+        return addon.preferences
+
+    except Exception:
+        return None
+
+
+def _toolbar_width_scale(context):
+
+    try:
+        system = bpy.context.preferences.system
+        region = context.region
+        view2d = region.view2d
+
+        view2d_scale = (
+            view2d.region_to_view(1.0, 0.0)[0]
+            -
+            view2d.region_to_view(0.0, 0.0)[0]
+        )
+
+        width_scale = (
+            region.width *
+            view2d_scale /
+            system.ui_scale
+        )
+
+    except (
+        AttributeError,
+        RuntimeError,
+        ZeroDivisionError
+    ):
+        try:
+            width_scale = context.region.width
+        except AttributeError:
+            width_scale = 0.0
+
+    return width_scale
+
+
+def _toolbar_layout_mode(context):
+
+    width_scale = _toolbar_width_scale(context)
+
+    # 1 column, icons
+    if width_scale <= 80.0:
+        return 1, False
+
+    # 2 columns, icons
+    if width_scale <= 120.0:
+        return 2, False
+
+    # 3 columns, icons
+    if width_scale <= 160.0:
+        return 3, False
+
+    # 4 columns, icons
+    if width_scale <= 185.0:
+        return 4, False
+
+    # 1 column, text
+    return 1, True
+
+
+def _call_original_layout_detect(
+    cls,
+    layout,
+    region,
+    scale_y
+):
+
+    if _ORIGINAL_LAYOUT_DETECT is None:
+        return cls._layout_generator_detect_from_region(
+            layout,
+            region,
+            scale_y
+        )
+
+    original = _ORIGINAL_LAYOUT_DETECT.__get__(
+        cls,
+        ToolSelectPanelHelper
+    )
+
+    return original(
+        layout,
+        region,
+        scale_y
+    )
+
+
+def _native_toolbar_layout_detect(
+    cls,
+    layout,
+    region,
+    scale_y
+):
+
+    # Only affect the 3D View.
+    try:
+        space = bpy.context.space_data
+
+        if space is None or space.type != 'VIEW_3D':
+            return _call_original_layout_detect(
+                cls,
+                layout,
+                region,
+                scale_y
+            )
+
+    except Exception:
+        return _call_original_layout_detect(
+            cls,
+            layout,
+            region,
+            scale_y
+        )
+
+    prefs = _get_preferences()
+
+    # Blender Default.
+    if prefs is None or prefs.native_toolbar_layout != '4_COLUMNS':
+        return _call_original_layout_detect(
+            cls,
+            layout,
+            region,
+            scale_y
+        )
+
+    try:
+        width_scale = (
+            region.width *
+            (
+                region.view2d.region_to_view(1.0, 0.0)[0]
+                -
+                region.view2d.region_to_view(0.0, 0.0)[0]
+            )
+            /
+            bpy.context.preferences.system.ui_scale
+        )
+
+    except (
+        AttributeError,
+        RuntimeError,
+        ZeroDivisionError
+    ):
+        width_scale = region.width
+
+    if width_scale <= 80.0:
+        column_count = 1
+        show_text = False
+
+    elif width_scale <= 120.0:
+        column_count = 2
+        show_text = False
+
+    elif width_scale <= 160.0:
+        column_count = 3
+        show_text = False
+
+    elif width_scale <= 185.0:
+        column_count = 4
+        show_text = False
+
+    else:
+        column_count = 1
+        show_text = True
+
+    return (
+        cls._layout_generator(
+            layout,
+            region,
+            scale_y,
+            column_count,
+            show_text
+        )
+    )
+
+
+def _install_native_toolbar_patch():
+
+    global _ORIGINAL_LAYOUT_DETECT
+    global _PATCH_INSTALLED
+
+    if _PATCH_INSTALLED:
+        return
+
+    # If the module was reloaded while the patch was active,
+    # recover the original descriptor saved on the class.
+    existing_original = ToolSelectPanelHelper.__dict__.get(
+        _PATCH_MARKER
+    )
+
+    if existing_original is not None:
+        _ORIGINAL_LAYOUT_DETECT = existing_original
+
+    else:
+        _ORIGINAL_LAYOUT_DETECT = (
+            ToolSelectPanelHelper.__dict__.get(
+                "_layout_generator_detect_from_region"
+            )
+        )
+
+        if _ORIGINAL_LAYOUT_DETECT is None:
+            return
+
+        setattr(
+            ToolSelectPanelHelper,
+            _PATCH_MARKER,
+            _ORIGINAL_LAYOUT_DETECT
+        )
+
+    ToolSelectPanelHelper._layout_generator_detect_from_region = (
+        classmethod(_native_toolbar_layout_detect)
+    )
+
+    _PATCH_INSTALLED = True
+
+
+def _remove_native_toolbar_patch():
+
+    global _ORIGINAL_LAYOUT_DETECT
+    global _PATCH_INSTALLED
+
+    if not _PATCH_INSTALLED:
+
+        # Handle a module reload where the previous module installed
+        # the patch but the new module has not yet marked it installed.
+        existing_original = ToolSelectPanelHelper.__dict__.get(
+            _PATCH_MARKER
+        )
+
+        if existing_original is None:
+            return
+
+        ToolSelectPanelHelper._layout_generator_detect_from_region = (
+            existing_original
+        )
+
+        try:
+            delattr(
+                ToolSelectPanelHelper,
+                _PATCH_MARKER
+            )
+        except AttributeError:
+            pass
+
+        _ORIGINAL_LAYOUT_DETECT = None
+        return
+
+    if _ORIGINAL_LAYOUT_DETECT is not None:
+
+        ToolSelectPanelHelper._layout_generator_detect_from_region = (
+            _ORIGINAL_LAYOUT_DETECT
+        )
+
+    try:
+        delattr(
+            ToolSelectPanelHelper,
+            _PATCH_MARKER
+        )
+    except AttributeError:
+        pass
+
+    _ORIGINAL_LAYOUT_DETECT = None
+    _PATCH_INSTALLED = False
+
+
+def update_native_toolbar_layout():
+
+    prefs = _get_preferences()
+
+    if prefs is None:
+        return
+
+    if (
+        getattr(prefs, "toolbar", True)
+        and
+        prefs.native_toolbar_layout == '4_COLUMNS'
+    ):
+        _install_native_toolbar_patch()
+
+    else:
+        _remove_native_toolbar_patch()
+
+    # Update every 3D View immediately.
+    try:
+        for screen in bpy.data.screens:
+            for area in screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+    except Exception:
+        pass
+
 
 # ============================================================
 # DELETE
@@ -417,27 +729,15 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ----------------------------------------------------
-        # MARK SEAM
-        # ----------------------------------------------------
-
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
-        # ----------------------------------------------------
-        # CLEAR SEAM
-        # ----------------------------------------------------
-
         layout.operator(
             "view3d.touchscreen_clear_seam",
             text="Clear Seam"
         )
-
-        # ----------------------------------------------------
-        # UNWRAP
-        # ----------------------------------------------------
 
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
@@ -457,60 +757,127 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
 
 
 # ============================================================
-# TOOLBAR LAYOUT
+# POSE MODE
 # ============================================================
 
+class VIEW3D_MT_touchscreen_pose_copy(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_pose_copy"
+    bl_label = "Copy"
 
-def _toolbar_layout_from_region(region):
+    def draw(self, context):
+        layout = self.layout
 
-    try:
-        system = bpy.context.preferences.system
-        view2d = region.view2d
-
-        view2d_scale = (
-            view2d.region_to_view(1.0, 0.0)[0]
-            -
-            view2d.region_to_view(0.0, 0.0)[0]
+        layout.operator(
+            "pose.copy",
+            text="Copy Selected",
+            icon='COPYDOWN'
         )
 
-        width_scale = (
-            region.width *
-            view2d_scale /
-            system.ui_scale
+        layout.operator(
+            "poselib.copy_as_asset",
+            text="Copy as Asset",
+            icon='ASSET_MANAGER'
         )
 
-    except (
-        AttributeError,
-        RuntimeError,
-        ZeroDivisionError
-    ):
-        width_scale = region.width
 
-    # Touchscreen layout:
-    # <= 80   : 1 column
-    # <= 120  : 2 columns
-    # <= 160  : 3 columns
-    # <= 185  : 4 columns
-    # > 185   : text
+class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
+    bl_idname = "view3d.pose_copy_menu"
+    bl_label = "Copy"
 
-    if width_scale <= 80.0:
-        return 1, False
-
-    if width_scale <= 120.0:
-        return 2, False
-
-    if width_scale <= 160.0:
-        return 3, False
-
-    if width_scale <= 185.0:
-        return 4, False
-
-    return 1, True
+    def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_pose_copy"
+        )
+        return {'FINISHED'}
 
 
-def _toolbar_layout_mode(context):
-    return _toolbar_layout_from_region(context.region)
+class VIEW3D_MT_touchscreen_pose_paste(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_pose_paste"
+    bl_label = "Paste"
 
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator(
+            "pose.paste",
+            text="Paste Pose",
+            icon='PASTEDOWN'
+        )
+
+        op = layout.operator(
+            "pose.paste",
+            text="Paste Pose Flipped",
+            icon='PASTEFLIPDOWN'
+        )
+        op.flipped = True
+
+
+class VIEW3D_OT_pose_paste_menu(bpy.types.Operator):
+    bl_idname = "view3d.pose_paste_menu"
+    bl_label = "Paste"
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_pose_paste"
+        )
+        return {'FINISHED'}
+
+
+class VIEW3D_MT_touchscreen_pose_show_hide(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_pose_show_hide"
+    bl_label = "Show/Hide"
+
+    def draw(self, context):
+        layout = self.layout
+
+        op = layout.operator(
+            "pose.hide",
+            text="Hide Selected"
+        )
+        op.unselected = False
+
+        op = layout.operator(
+            "pose.hide",
+            text="Hide Unselected"
+        )
+        op.unselected = True
+
+        layout.operator(
+            "pose.reveal",
+            text="Show All"
+        )
+
+
+class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
+    bl_idname = "view3d.pose_show_hide_menu"
+    bl_label = "Show/Hide"
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_pose_show_hide"
+        )
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_pose_insert_keyframe(bpy.types.Operator):
+    bl_idname = "view3d.pose_insert_keyframe"
+    bl_label = "Insert Keyframe"
+
+    def execute(self, context):
+        try:
+            bpy.ops.anim.keyframe_insert_menu(
+                'INVOKE_DEFAULT',
+                always_prompt=True
+            )
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+# ============================================================
+# BUTTON DRAWING
+# ============================================================
 
 def _draw_button(layout, item, show_text):
 
@@ -527,147 +894,6 @@ def _draw_button(layout, item, show_text):
 
 
 # ============================================================
-# NATIVE BLENDER TOOLBAR PATCH
-# ============================================================
-
-_NATIVE_ORIGINAL_LAYOUT_DETECT = None
-_NATIVE_PATCH_INSTALLED = False
-
-
-def _addon_preferences():
-
-    try:
-        addon = bpy.context.preferences.addons.get(__package__)
-        if addon is not None:
-            return addon.preferences
-    except Exception:
-        pass
-
-    return None
-
-
-def _call_native_original(cls, layout, region, scale_y):
-
-    if _NATIVE_ORIGINAL_LAYOUT_DETECT is None:
-        return cls._layout_generator_single_column(
-            layout,
-            scale_y=scale_y,
-        ), True
-
-    original = _NATIVE_ORIGINAL_LAYOUT_DETECT.__get__(
-        cls,
-        ToolSelectPanelHelper,
-    )
-
-    return original(
-        layout,
-        region,
-        scale_y,
-    )
-
-
-def _native_toolbar_patch(cls, layout, region, scale_y):
-
-    space = bpy.context.space_data
-
-    if space is None or space.type != 'VIEW_3D':
-        return _call_native_original(
-            cls,
-            layout,
-            region,
-            scale_y,
-        )
-
-    prefs = _addon_preferences()
-
-    if (
-        prefs is None
-        or prefs.native_toolbar_layout != 'TOUCHSCREEN'
-    ):
-        return _call_native_original(
-            cls,
-            layout,
-            region,
-            scale_y,
-        )
-
-    columns, show_text = _toolbar_layout_from_region(region)
-
-    if columns == 1:
-        ui_gen = cls._layout_generator_single_column(
-            layout,
-            scale_y=scale_y,
-        )
-    else:
-        ui_gen = cls._layout_generator_multi_columns(
-            layout,
-            column_count=columns,
-            scale_y=scale_y,
-        )
-
-    return ui_gen, show_text
-
-
-def _install_native_toolbar_patch():
-
-    global _NATIVE_ORIGINAL_LAYOUT_DETECT
-    global _NATIVE_PATCH_INSTALLED
-
-    if _NATIVE_PATCH_INSTALLED:
-        return
-
-    _NATIVE_ORIGINAL_LAYOUT_DETECT = (
-        ToolSelectPanelHelper
-        .__dict__
-        .get('_layout_generator_detect_from_region')
-    )
-
-    if _NATIVE_ORIGINAL_LAYOUT_DETECT is None:
-        print(
-            'Touchscreen - Could not find Blender toolbar layout function'
-        )
-        return
-
-    ToolSelectPanelHelper._layout_generator_detect_from_region = (
-        classmethod(_native_toolbar_patch)
-    )
-
-    _NATIVE_PATCH_INSTALLED = True
-
-
-def _remove_native_toolbar_patch():
-
-    global _NATIVE_ORIGINAL_LAYOUT_DETECT
-    global _NATIVE_PATCH_INSTALLED
-
-    if not _NATIVE_PATCH_INSTALLED:
-        return
-
-    if _NATIVE_ORIGINAL_LAYOUT_DETECT is not None:
-        ToolSelectPanelHelper._layout_generator_detect_from_region = (
-            _NATIVE_ORIGINAL_LAYOUT_DETECT
-        )
-
-    _NATIVE_ORIGINAL_LAYOUT_DETECT = None
-    _NATIVE_PATCH_INSTALLED = False
-
-
-def update_native_toolbar_layout():
-    # The wrapper is installed while the Toolbar module is active.
-    # The preference itself decides whether Blender or Touchscreen
-    # behavior is actually used.
-
-    for window in bpy.context.window_manager.windows:
-        screen = window.screen
-        if screen is None:
-            continue
-
-        for area in screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
-
-
-# ============================================================
 # MAIN TOOLBAR
 # ============================================================
 
@@ -676,6 +902,7 @@ def draw_toolbar(self, context):
     layout = self.layout
     mode = context.mode
 
+    # Touchscreen toolbar ALWAYS uses the automatic layout.
     columns, show_text = _toolbar_layout_mode(context)
 
     # --------------------------------------------------------
@@ -907,6 +1134,106 @@ def draw_toolbar(self, context):
         ]
 
     # --------------------------------------------------------
+    # POSE MODE
+    # --------------------------------------------------------
+
+    elif mode == 'POSE':
+
+        groups = [
+            [
+                (
+                    'view3d.pose_copy_menu',
+                    'COPYDOWN',
+                    'Copy',
+                    {}
+                ),
+                (
+                    'view3d.pose_paste_menu',
+                    'PASTEDOWN',
+                    'Paste',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.pose_insert_keyframe',
+                    'KEY_HLT',
+                    'Insert Keyframe',
+                    {}
+                ),
+                (
+                    'view3d.pose_show_hide_menu',
+                    'HIDE_OFF',
+                    'Show/Hide',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_repeat_last',
+                    'RECOVER_LAST',
+                    'Repeat Last',
+                    {}
+                ),
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
+    # DRAW MODE
+    # --------------------------------------------------------
+
+    elif mode == 'PAINT_GREASE_PENCIL':
+
+        groups = [
+            [
+                (
+                    'view3d.simple_undo',
+                    'LOOP_BACK',
+                    'Undo',
+                    {}
+                ),
+                (
+                    'view3d.simple_redo',
+                    'LOOP_FORWARDS',
+                    'Redo',
+                    {}
+                ),
+            ],
+
+            [
+                (
+                    'view3d.simple_undo_history',
+                    'HELP',
+                    'History',
+                    {}
+                ),
+            ],
+        ]
+
+    # --------------------------------------------------------
     # SCULPT / PAINT
     # --------------------------------------------------------
 
@@ -952,8 +1279,7 @@ def draw_toolbar(self, context):
 
     if not show_text:
 
-        # One continuous grid using the same 1 / 2 / 3 / 4
-        # column logic as the native toolbar.
+        # Continuous grid for 1 / 2 / 3 / 4 columns.
         grid = layout.grid_flow(
             row_major=True,
             columns=columns,
@@ -974,7 +1300,7 @@ def draw_toolbar(self, context):
 
     else:
 
-        # Text mode: one continuous column.
+        # One column with text.
         column = layout.column(
             align=True
         )
@@ -1013,6 +1339,14 @@ CLASSES = (
     VIEW3D_OT_simple_undo_history,
     VIEW3D_OT_simple_repeat_last,
 
+    VIEW3D_MT_touchscreen_pose_copy,
+    VIEW3D_OT_pose_copy_menu,
+    VIEW3D_MT_touchscreen_pose_paste,
+    VIEW3D_OT_pose_paste_menu,
+    VIEW3D_MT_touchscreen_pose_show_hide,
+    VIEW3D_OT_pose_show_hide_menu,
+    VIEW3D_OT_pose_insert_keyframe,
+
     VIEW3D_MT_touchscreen_fill,
     VIEW3D_OT_fill_menu,
 
@@ -1042,8 +1376,6 @@ def register():
         except ValueError:
             pass
 
-    _install_native_toolbar_patch()
-
     try:
         bpy.types.VIEW3D_PT_tools_active.append(
             draw_toolbar
@@ -1051,8 +1383,14 @@ def register():
     except Exception:
         pass
 
+    # Apply the native toolbar preference.
+    update_native_toolbar_layout()
+
 
 def unregister():
+
+    # Always restore Blender's original native toolbar first.
+    _remove_native_toolbar_patch()
 
     try:
         bpy.types.VIEW3D_PT_tools_active.remove(
@@ -1061,11 +1399,8 @@ def unregister():
     except Exception:
         pass
 
-    _remove_native_toolbar_patch()
-
     for cls in reversed(CLASSES):
         try:
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
-
