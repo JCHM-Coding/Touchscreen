@@ -118,9 +118,7 @@ def _native_toolbar_layout_detect(layout, region, scale_y):
         column_count = 3
         show_text = False
 
-    elif width_scale <= 185.0:
-        column_count = 4
-        show_text = False
+    
 
     else:
         column_count = 1
@@ -1147,8 +1145,7 @@ def _toolbar_layout_mode(context):
     elif width_scale <= 160.0:
         return 3, False
 
-    elif width_scale <= 185.0:
-        return 4, False
+    
 
     else:
         return 1, True
