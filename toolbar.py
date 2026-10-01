@@ -719,53 +719,52 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # 1. Select All
+        # Select All
         op = layout.operator(
             "mesh.select_all",
-            text="Select All",
-            icon='SCENE_DATA'
+            text="Select All"
         )
         op.action = 'SELECT'
 
-        # 2. Edge Loops
+        # Edge Loops
         op = layout.operator(
             "mesh.loop_multi_select",
             text="Edge Loops"
         )
         op.ring = False
 
-        # 3. Edge Rings
+        # Edge Rings
         op = layout.operator(
             "mesh.loop_multi_select",
             text="Edge Rings"
         )
         op.ring = True
 
-        # 4. Boundary of Selected
+        # Boundary of Selected
         layout.operator(
             "mesh.region_to_loop",
             text="Boundary of Selected"
         )
 
-        # 5. Shortest Path
+        # Shortest Path
         layout.operator(
             "view3d.touchscreen_shortest_path",
             text="Shortest Path"
         )
 
-        # 6. Select Mirror
+        # Select Mirror
         layout.operator(
             "mesh.select_mirror",
             text="Select Mirror"
         )
 
-        # 7. Inner Region
+        # Inner Region
         layout.operator(
             "mesh.loop_to_region",
             text="Inner Region"
         )
 
-        # 8. Select Linked
+        # Select Linked
         layout.operator(
             "mesh.select_linked",
             text="Select Linked"
@@ -819,10 +818,7 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
             context.tool_settings.mesh_select_mode
         )
 
-        # --------------------------------------------------------------
         # Vertex mode
-        # --------------------------------------------------------------
-
         if select_mode == (True, False, False):
             elements = [
                 vert
@@ -840,10 +836,7 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
                 for edge in first.link_edges
             )
 
-        # --------------------------------------------------------------
         # Edge mode
-        # --------------------------------------------------------------
-
         elif select_mode == (False, True, False):
             elements = [
                 edge
@@ -861,10 +854,7 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
                 set(second.verts)
             )
 
-        # --------------------------------------------------------------
         # Face mode
-        # --------------------------------------------------------------
-
         elif select_mode == (False, False, True):
             elements = [
                 face
@@ -885,11 +875,9 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
         else:
             return {'CANCELLED'}
 
-        # Don't run if already connected.
         if connected:
             return {'CANCELLED'}
 
-        # Preserve the two selected elements in the selection history.
         bm.select_history.clear()
         bm.select_history.add(first)
         bm.select_history.add(second)
@@ -1170,8 +1158,8 @@ def _draw_fixed_width_buttons(layout, groups, columns):
                 align=False
             )
 
-            # Keep each button at the natural configured width.
-            cell.ui_units_x = 4.0
+            # Fixed button width.
+            cell.ui_units_x = 8.0
 
             _draw_button(
                 cell,
