@@ -181,8 +181,8 @@ class TOUCHSCREEN_Preferences(
             ),
             (
                 "4_COLUMNS",
-                "4 Columns",
-                "Use the Touchscreen automatic 1, 2, 3, 4 columns and text layout"
+                "3 Columns",
+                "Use the Touchscreen automatic 1, 2, 3, columns and text layout"
             ),
         ],
         default="BLENDER",
