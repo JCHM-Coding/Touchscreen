@@ -5,7 +5,7 @@
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License or
+# the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
 import bpy
@@ -720,11 +720,12 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
         layout = self.layout
 
         # Select All
-        layout.operator(
+        op = layout.operator(
             "mesh.select_all",
             text="Select All",
             icon='SCENE_DATA'
-        ).action = 'SELECT'
+        )
+        op.action = 'SELECT'
 
         layout.separator()
 
@@ -886,18 +887,12 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
         else:
             return {'CANCELLED'}
 
-        # --------------------------------------------------------------
         # Already connected -> do nothing.
-        # --------------------------------------------------------------
-
         if connected:
             return {'CANCELLED'}
 
-        # --------------------------------------------------------------
-        # Make sure exactly the two selected elements are in the
-        # selection history, with the second one last/active.
-        # --------------------------------------------------------------
-
+        # Blender's shortest_path_select uses the selection history
+        # to determine the two endpoints.
         bm.select_history.clear()
         bm.select_history.add(first)
         bm.select_history.add(second)
@@ -907,11 +902,6 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
             loop_triangles=False,
             destructive=False
         )
-
-        # --------------------------------------------------------------
-        # Blender's non-modal Shortest Path operator.
-        # It operates on the two selected elements.
-        # --------------------------------------------------------------
 
         try:
             if not bpy.ops.mesh.shortest_path_select.poll():
@@ -1515,36 +1505,23 @@ def draw_toolbar(self, context):
 
     # --------------------------------------------------------------------
     # ICON-ONLY RESPONSIVE LAYOUT
-    #
-    # Explicit rows instead of grid_flow.
-    # This prevents 3 and 4 column buttons from expanding to consume
-    # the available width.
     # --------------------------------------------------------------------
 
     if not show_text:
-        items = [
-            item
-            for group in groups
-            for item in group
-        ]
+        grid = layout.grid_flow(
+            row_major=True,
+            columns=columns,
+            even_columns=False,
+            even_rows=False,
+            align=True
+        )
 
-        for start in range(
-            0,
-            len(items),
-            columns
-        ):
-            row = layout.row(
-                align=True
-            )
+        grid.scale_y = 2.0
 
-            row.alignment = 'LEFT'
-            row.scale_y = 2.0
-
-            for item in items[
-                start:start + columns
-            ]:
+        for group in groups:
+            for item in group:
                 _draw_button(
-                    row,
+                    grid,
                     item,
                     False
                 )
