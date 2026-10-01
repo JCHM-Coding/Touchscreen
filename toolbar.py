@@ -719,43 +719,72 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Edge Rings
+        # Select All
         op = layout.operator(
-            "mesh.loop_multi_select",
-            text="Edge Rings"
+            "mesh.select_all",
+            text="Select All"
         )
-        op.ring = True
+        op.action = 'SELECT'
 
-        # Boundary of Selected
+        # Select More / Less
         layout.operator(
-            "mesh.region_to_loop",
-            text="Boundary of Selected"
+            "mesh.select_more",
+            text="Select More"
+        )
+
+        layout.operator(
+            "mesh.select_less",
+            text="Select Less"
+        )
+
+        layout.separator()
+
+        # Edge Loops
+        layout.operator(
+            "mesh.select_edge_loop_multi",
+            text="Edge Loops"
+        )
+
+        # Edge Rings
+        layout.operator(
+            "mesh.select_edge_ring_multi",
+            text="Edge Rings"
         )
 
         # Shortest Path
-        layout.operator(
-            "view3d.touchscreen_shortest_path",
+        op = layout.operator(
+            "mesh.shortest_path_select",
             text="Shortest Path"
         )
+        op.edge_mode = 'SELECT'
 
-        # Select Mirror
+        layout.separator()
+
+        # Region to Loop
         layout.operator(
-            "mesh.select_mirror",
-            text="Select Mirror"
+            "mesh.region_to_loop",
+            text="Region to Loop"
         )
 
-        # Inner Region
+        # Loop to Region
         layout.operator(
             "mesh.loop_to_region",
-            text="Inner Region"
+            text="Loop to Region"
         )
 
+        layout.separator()
+
         # Select Linked
-        layout.operator(
+        op = layout.operator(
             "mesh.select_linked",
             text="Select Linked"
         )
+        op.delimit = set()
 
+
+# ------------------------------------------------------------------------
+# EDIT MODE - SELECT MENU OPERATOR
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_edit_select_menu(bpy.types.Operator):
     bl_idname = "view3d.edit_select_menu"
@@ -820,7 +849,6 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
             first, second = elements
 
-            # Already directly connected by an edge.
             connected = any(
                 edge.other_vert(first) == second
                 for edge in first.link_edges
@@ -842,8 +870,6 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
             first, second = elements
 
-            # Two edges are directly connected when they share
-            # a vertex.
             connected = bool(
                 set(first.verts) &
                 set(second.verts)
@@ -865,8 +891,6 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
             first, second = elements
 
-            # Two faces are directly connected when they share
-            # an edge.
             connected = bool(
                 set(first.edges) &
                 set(second.edges)
@@ -1251,10 +1275,10 @@ def draw_toolbar(self, context):
                     {}
                 ),
                 (
-                    'mesh.select_all',
+                    'view3d.edit_select_menu',
                     'SCENE_DATA',
-                    'Select All',
-                    {'action': 'SELECT'}
+                    'Select',
+                    {}
                 ),
             ],
             [
@@ -1262,12 +1286,6 @@ def draw_toolbar(self, context):
                     'view3d.uv_menu',
                     'MOD_UVPROJECT',
                     'UV',
-                    {}
-                ),
-                (
-                    'view3d.edit_select_menu',
-                    'RESTRICT_SELECT_OFF',
-                    'Select',
                     {}
                 ),
             ],
