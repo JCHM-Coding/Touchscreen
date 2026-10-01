@@ -719,7 +719,7 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Select All
+        # 1. Select All
         op = layout.operator(
             "mesh.select_all",
             text="Select All",
@@ -727,47 +727,45 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
         )
         op.action = 'SELECT'
 
-        layout.separator()
-
-        # Edge Loops
+        # 2. Edge Loops
         op = layout.operator(
             "mesh.loop_multi_select",
             text="Edge Loops"
         )
         op.ring = False
 
-        # Edge Rings
+        # 3. Edge Rings
         op = layout.operator(
             "mesh.loop_multi_select",
             text="Edge Rings"
         )
         op.ring = True
 
-        # Boundary of Selected
+        # 4. Boundary of Selected
         layout.operator(
             "mesh.region_to_loop",
             text="Boundary of Selected"
         )
 
-        # Shortest Path
+        # 5. Shortest Path
         layout.operator(
             "view3d.touchscreen_shortest_path",
             text="Shortest Path"
         )
 
-        # Select Mirror
+        # 6. Select Mirror
         layout.operator(
             "mesh.select_mirror",
             text="Select Mirror"
         )
 
-        # Inner Region
+        # 7. Inner Region
         layout.operator(
             "mesh.loop_to_region",
             text="Inner Region"
         )
 
-        # Select Linked
+        # 8. Select Linked
         layout.operator(
             "mesh.select_linked",
             text="Select Linked"
@@ -887,12 +885,11 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
         else:
             return {'CANCELLED'}
 
-        # Already connected -> do nothing.
+        # Don't run if already connected.
         if connected:
             return {'CANCELLED'}
 
-        # Blender's shortest_path_select uses the selection history
-        # to determine the two endpoints.
+        # Preserve the two selected elements in the selection history.
         bm.select_history.clear()
         bm.select_history.add(first)
         bm.select_history.add(second)
@@ -1140,6 +1137,49 @@ def _draw_button(layout, item, show_text):
 
     for key, value in props.items():
         setattr(button, key, value)
+
+
+# ------------------------------------------------------------------------
+# FIXED-WIDTH ICON BUTTONS
+# ------------------------------------------------------------------------
+
+def _draw_fixed_width_buttons(layout, groups, columns):
+    items = []
+
+    for group in groups:
+        for item in group:
+            items.append(item)
+
+    index = 0
+    total = len(items)
+
+    while index < total:
+        row = layout.row(
+            align=False
+        )
+
+        row.scale_y = 2.0
+
+        for _ in range(columns):
+            if index >= total:
+                break
+
+            item = items[index]
+
+            cell = row.row(
+                align=False
+            )
+
+            # Keep each button at the natural configured width.
+            cell.ui_units_x = 4.0
+
+            _draw_button(
+                cell,
+                item,
+                False
+            )
+
+            index += 1
 
 
 # ------------------------------------------------------------------------
@@ -1508,23 +1548,11 @@ def draw_toolbar(self, context):
     # --------------------------------------------------------------------
 
     if not show_text:
-        grid = layout.grid_flow(
-            row_major=True,
-            columns=columns,
-            even_columns=False,
-            even_rows=False,
-            align=True
+        _draw_fixed_width_buttons(
+            layout,
+            groups,
+            columns
         )
-
-        grid.scale_y = 2.0
-
-        for group in groups:
-            for item in group:
-                _draw_button(
-                    grid,
-                    item,
-                    False
-                )
 
     # --------------------------------------------------------------------
     # TEXT LAYOUT
