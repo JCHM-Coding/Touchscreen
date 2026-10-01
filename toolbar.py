@@ -719,20 +719,6 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Select All
-        op = layout.operator(
-            "mesh.select_all",
-            text="Select All"
-        )
-        op.action = 'SELECT'
-
-        # Edge Loops
-        op = layout.operator(
-            "mesh.loop_multi_select",
-            text="Edge Loops"
-        )
-        op.ring = False
-
         # Edge Rings
         op = layout.operator(
             "mesh.loop_multi_select",
@@ -818,7 +804,10 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
             context.tool_settings.mesh_select_mode
         )
 
+        # --------------------------------------------------------------
         # Vertex mode
+        # --------------------------------------------------------------
+
         if select_mode == (True, False, False):
             elements = [
                 vert
@@ -831,12 +820,16 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
             first, second = elements
 
+            # Already directly connected by an edge.
             connected = any(
                 edge.other_vert(first) == second
                 for edge in first.link_edges
             )
 
+        # --------------------------------------------------------------
         # Edge mode
+        # --------------------------------------------------------------
+
         elif select_mode == (False, True, False):
             elements = [
                 edge
@@ -849,12 +842,17 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
             first, second = elements
 
+            # Two edges are directly connected when they share
+            # a vertex.
             connected = bool(
                 set(first.verts) &
                 set(second.verts)
             )
 
+        # --------------------------------------------------------------
         # Face mode
+        # --------------------------------------------------------------
+
         elif select_mode == (False, False, True):
             elements = [
                 face
@@ -867,6 +865,8 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
 
             first, second = elements
 
+            # Two faces are directly connected when they share
+            # an edge.
             connected = bool(
                 set(first.edges) &
                 set(second.edges)
@@ -875,12 +875,30 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
         else:
             return {'CANCELLED'}
 
+        # --------------------------------------------------------------
+        # Don't run if the two elements are already connected.
+        # --------------------------------------------------------------
+
         if connected:
             return {'CANCELLED'}
 
+        # --------------------------------------------------------------
+        # Establish the first element as the active/source element.
+        # --------------------------------------------------------------
+
+        for vert in bm.verts:
+            vert.select_set(False)
+
+        for edge in bm.edges:
+            edge.select_set(False)
+
+        for face in bm.faces:
+            face.select_set(False)
+
+        first.select_set(True)
+
         bm.select_history.clear()
         bm.select_history.add(first)
-        bm.select_history.add(second)
 
         bmesh.update_edit_mesh(
             obj.data,
@@ -888,15 +906,17 @@ class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
             destructive=False
         )
 
-        try:
-            if not bpy.ops.mesh.shortest_path_select.poll():
-                return {'CANCELLED'}
+        # --------------------------------------------------------------
+        # Execute Blender's Shortest Path operator.
+        # --------------------------------------------------------------
 
-            result = bpy.ops.mesh.shortest_path_select(
+        try:
+            result = bpy.ops.mesh.shortest_path_pick(
                 edge_mode='SELECT',
                 use_face_step=False,
                 use_topology_distance=False,
-                use_fill=False
+                use_fill=False,
+                index=second.index
             )
 
         except (RuntimeError, AttributeError):
@@ -1128,49 +1148,6 @@ def _draw_button(layout, item, show_text):
 
 
 # ------------------------------------------------------------------------
-# FIXED-WIDTH ICON BUTTONS
-# ------------------------------------------------------------------------
-
-def _draw_fixed_width_buttons(layout, groups, columns):
-    items = []
-
-    for group in groups:
-        for item in group:
-            items.append(item)
-
-    index = 0
-    total = len(items)
-
-    while index < total:
-        row = layout.row(
-            align=False
-        )
-
-        row.scale_y = 2.0
-
-        for _ in range(columns):
-            if index >= total:
-                break
-
-            item = items[index]
-
-            cell = row.row(
-                align=False
-            )
-
-            # Fixed button width.
-            cell.ui_units_x = 8.0
-
-            _draw_button(
-                cell,
-                item,
-                False
-            )
-
-            index += 1
-
-
-# ------------------------------------------------------------------------
 # MAIN TOOLBAR
 # ------------------------------------------------------------------------
 
@@ -1274,10 +1251,10 @@ def draw_toolbar(self, context):
                     {}
                 ),
                 (
-                    'view3d.edit_select_menu',
+                    'mesh.select_all',
                     'SCENE_DATA',
-                    'Select',
-                    {}
+                    'Select All',
+                    {'action': 'SELECT'}
                 ),
             ],
             [
@@ -1285,6 +1262,12 @@ def draw_toolbar(self, context):
                     'view3d.uv_menu',
                     'MOD_UVPROJECT',
                     'UV',
+                    {}
+                ),
+                (
+                    'view3d.edit_select_menu',
+                    'RESTRICT_SELECT_OFF',
+                    'Select',
                     {}
                 ),
             ],
@@ -1536,11 +1519,23 @@ def draw_toolbar(self, context):
     # --------------------------------------------------------------------
 
     if not show_text:
-        _draw_fixed_width_buttons(
-            layout,
-            groups,
-            columns
+        grid = layout.grid_flow(
+            row_major=True,
+            columns=columns,
+            even_columns=False,
+            even_rows=False,
+            align=True
         )
+
+        grid.scale_y = 2.0
+
+        for group in groups:
+            for item in group:
+                _draw_button(
+                    grid,
+                    item,
+                    False
+                )
 
     # --------------------------------------------------------------------
     # TEXT LAYOUT
