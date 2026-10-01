@@ -9,11 +9,251 @@
 # (at your option) any later version.
 
 import bpy
+import bmesh
+
+from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
 
 
-# ============================================================
+_ORIGINAL_LAYOUT_DETECT = None
+_PATCH_INSTALLED = False
+_PATCH_MARKER = "_touchscreen_original_layout_detect"
+
+
+# ------------------------------------------------------------------------
+# PREFERENCES
+# ------------------------------------------------------------------------
+
+def _get_preferences():
+    try:
+        addon_name = __package__.split(".")[0]
+        addon = bpy.context.preferences.addons.get(addon_name)
+
+        if addon is None:
+            return None
+
+        return addon.preferences
+
+    except Exception:
+        return None
+
+
+# ------------------------------------------------------------------------
+# NATIVE BLENDER TOOLBAR LAYOUT
+# ------------------------------------------------------------------------
+
+def _native_toolbar_layout_detect(layout, region, scale_y):
+    try:
+        space = bpy.context.space_data
+
+        if (
+            space is None
+            or space.type != 'VIEW_3D'
+        ):
+            return _ORIGINAL_LAYOUT_DETECT.__get__(
+                None,
+                ToolSelectPanelHelper
+            )(layout, region, scale_y)
+
+    except Exception:
+        return _ORIGINAL_LAYOUT_DETECT.__get__(
+            None,
+            ToolSelectPanelHelper
+        )(layout, region, scale_y)
+
+    prefs = _get_preferences()
+
+    if (
+        prefs is None
+        or getattr(
+            prefs,
+            "native_toolbar_layout",
+            "BLENDER"
+        ) != '4_COLUMNS'
+    ):
+        return _ORIGINAL_LAYOUT_DETECT.__get__(
+            None,
+            ToolSelectPanelHelper
+        )(layout, region, scale_y)
+
+    try:
+        system = bpy.context.preferences.system
+        view2d = region.view2d
+
+        view2d_scale = (
+            view2d.region_to_view(1.0, 0.0)[0]
+            -
+            view2d.region_to_view(0.0, 0.0)[0]
+        )
+
+        width_scale = (
+            region.width *
+            view2d_scale /
+            system.ui_scale
+        )
+
+    except (
+        AttributeError,
+        RuntimeError,
+        ZeroDivisionError
+    ):
+        width_scale = region.width
+
+    # Touchscreen automatic layout:
+    #
+    # 1 column
+    # 2 columns
+    # 3 columns
+    # 4 columns
+    # 1 column + text
+    #
+    if width_scale <= 80.0:
+        column_count = 1
+        show_text = False
+
+    elif width_scale <= 120.0:
+        column_count = 2
+        show_text = False
+
+    elif width_scale <= 160.0:
+        column_count = 3
+        show_text = False
+
+    elif width_scale <= 185.0:
+        column_count = 4
+        show_text = False
+
+    else:
+        column_count = 1
+        show_text = True
+
+    if column_count == 1:
+        ui_gen = (
+            ToolSelectPanelHelper
+            ._layout_generator_single_column(
+                layout,
+                scale_y=scale_y
+            )
+        )
+
+    else:
+        ui_gen = (
+            ToolSelectPanelHelper
+            ._layout_generator_multi_columns(
+                layout,
+                column_count=column_count,
+                scale_y=scale_y
+            )
+        )
+
+    return ui_gen, show_text
+
+
+def _install_native_toolbar_patch():
+    global _ORIGINAL_LAYOUT_DETECT
+    global _PATCH_INSTALLED
+
+    if _PATCH_INSTALLED:
+        return
+
+    existing_original = (
+        ToolSelectPanelHelper.__dict__.get(
+            _PATCH_MARKER
+        )
+    )
+
+    if existing_original is not None:
+        _ORIGINAL_LAYOUT_DETECT = existing_original
+
+    else:
+        _ORIGINAL_LAYOUT_DETECT = (
+            ToolSelectPanelHelper.__dict__.get(
+                "_layout_generator_detect_from_region"
+            )
+        )
+
+        if _ORIGINAL_LAYOUT_DETECT is None:
+            return
+
+        setattr(
+            ToolSelectPanelHelper,
+            _PATCH_MARKER,
+            _ORIGINAL_LAYOUT_DETECT
+        )
+
+    ToolSelectPanelHelper._layout_generator_detect_from_region = (
+        staticmethod(
+            _native_toolbar_layout_detect
+        )
+    )
+
+    _PATCH_INSTALLED = True
+
+
+def _remove_native_toolbar_patch():
+    global _ORIGINAL_LAYOUT_DETECT
+    global _PATCH_INSTALLED
+
+    existing_original = (
+        ToolSelectPanelHelper.__dict__.get(
+            _PATCH_MARKER
+        )
+    )
+
+    if existing_original is not None:
+        ToolSelectPanelHelper._layout_generator_detect_from_region = (
+            existing_original
+        )
+
+        try:
+            delattr(
+                ToolSelectPanelHelper,
+                _PATCH_MARKER
+            )
+        except AttributeError:
+            pass
+
+    elif _ORIGINAL_LAYOUT_DETECT is not None:
+        ToolSelectPanelHelper._layout_generator_detect_from_region = (
+            _ORIGINAL_LAYOUT_DETECT
+        )
+
+    _ORIGINAL_LAYOUT_DETECT = None
+    _PATCH_INSTALLED = False
+
+
+def update_native_toolbar_layout():
+    prefs = _get_preferences()
+
+    if prefs is None:
+        return
+
+    if (
+        getattr(
+            prefs,
+            "toolbar",
+            True
+        )
+        and
+        prefs.native_toolbar_layout == '4_COLUMNS'
+    ):
+        _install_native_toolbar_patch()
+
+    else:
+        _remove_native_toolbar_patch()
+
+    try:
+        for screen in bpy.data.screens:
+            for area in screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+
+    except Exception:
+        pass
+
+
+# ------------------------------------------------------------------------
 # DELETE
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_simple_delete(bpy.types.Operator):
     bl_idname = "view3d.simple_delete"
@@ -32,12 +272,16 @@ class VIEW3D_OT_simple_delete(bpy.types.Operator):
         try:
             if context.mode == 'OBJECT':
                 bpy.ops.object.delete()
+
             elif context.mode == 'EDIT_MESH':
                 bpy.ops.mesh.delete(type='VERT')
+
             elif context.mode == 'EDIT_CURVE':
                 bpy.ops.curve.delete()
+
             elif context.mode == 'EDIT_ARMATURE':
                 bpy.ops.armature.delete()
+
         except RuntimeError as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
@@ -60,15 +304,16 @@ class VIEW3D_OT_delete_menu(bpy.types.Operator):
 
         if menu:
             bpy.ops.wm.call_menu(name=menu)
+
         else:
             bpy.ops.view3d.simple_delete()
 
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # DUPLICATE
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_simple_duplicate(bpy.types.Operator):
     bl_idname = "view3d.simple_duplicate"
@@ -116,19 +361,22 @@ class VIEW3D_OT_duplicate_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_duplicate"
         )
+
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # QUICK FAVORITES
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_favorites(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_favorites"
     bl_label = "Quick Favorites"
 
     def draw(self, context):
-        self.layout.menu_contents("SCREEN_MT_user_menu")
+        self.layout.menu_contents(
+            "SCREEN_MT_user_menu"
+        )
 
 
 class VIEW3D_OT_favorites_menu(bpy.types.Operator):
@@ -139,12 +387,13 @@ class VIEW3D_OT_favorites_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_favorites"
         )
+
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # JOIN
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_simple_join(bpy.types.Operator):
     bl_idname = "view3d.simple_join"
@@ -163,9 +412,9 @@ class VIEW3D_OT_simple_join(bpy.types.Operator):
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # UNDO / REDO / HISTORY
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_simple_undo(bpy.types.Operator):
     bl_idname = "view3d.simple_undo"
@@ -220,12 +469,14 @@ class VIEW3D_OT_simple_undo_history(bpy.types.Operator):
     bl_label = "History"
 
     def invoke(self, context, event):
-        return bpy.ops.ed.undo_history('INVOKE_DEFAULT')
+        return bpy.ops.ed.undo_history(
+            'INVOKE_DEFAULT'
+        )
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # REPEAT LAST
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_simple_repeat_last(bpy.types.Operator):
     bl_idname = "view3d.simple_repeat_last"
@@ -244,9 +495,9 @@ class VIEW3D_OT_simple_repeat_last(bpy.types.Operator):
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # FILL
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_fill"
@@ -255,8 +506,16 @@ class VIEW3D_MT_touchscreen_fill(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        layout.operator("mesh.fill", text="Fill")
-        layout.operator("mesh.fill_grid", text="Grid Fill")
+        layout.operator(
+            "mesh.fill",
+            text="Fill"
+        )
+
+        layout.operator(
+            "mesh.fill_grid",
+            text="Grid Fill"
+        )
+
         layout.operator(
             "mesh.bridge_edge_loops",
             text="Bridge Edge Loops"
@@ -271,12 +530,13 @@ class VIEW3D_OT_fill_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_fill"
         )
+
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # SEPARATE
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_separate(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_separate"
@@ -312,12 +572,13 @@ class VIEW3D_OT_separate_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_separate"
         )
+
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # SHOW / HIDE
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_show_hide(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_show_hide"
@@ -352,12 +613,13 @@ class VIEW3D_OT_show_hide_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_show_hide"
         )
+
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # CLEAR SEAM
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
     bl_idname = "view3d.touchscreen_clear_seam"
@@ -373,15 +635,16 @@ class VIEW3D_OT_touchscreen_clear_seam(bpy.types.Operator):
     def execute(self, context):
         try:
             bpy.ops.mesh.mark_seam(clear=True)
+
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
 
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # UNWRAP
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_unwrap"
@@ -406,9 +669,9 @@ class VIEW3D_MT_touchscreen_unwrap(bpy.types.Menu):
         )
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # UV MENU
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_uv"
@@ -417,27 +680,15 @@ class VIEW3D_MT_touchscreen_uv(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # ----------------------------------------------------
-        # MARK SEAM
-        # ----------------------------------------------------
-
         layout.operator(
             "uv.mark_seam",
             text="Mark Seam"
         )
 
-        # ----------------------------------------------------
-        # CLEAR SEAM
-        # ----------------------------------------------------
-
         layout.operator(
             "view3d.touchscreen_clear_seam",
             text="Clear Seam"
         )
-
-        # ----------------------------------------------------
-        # UNWRAP
-        # ----------------------------------------------------
 
         layout.menu(
             "VIEW3D_MT_touchscreen_unwrap",
@@ -453,12 +704,233 @@ class VIEW3D_OT_uv_menu(bpy.types.Operator):
         bpy.ops.wm.call_menu(
             name="VIEW3D_MT_touchscreen_uv"
         )
+
         return {'FINISHED'}
 
 
-# ============================================================
+# ------------------------------------------------------------------------
+# EDIT MODE - SELECT
+# ------------------------------------------------------------------------
+
+class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
+    bl_idname = "VIEW3D_MT_touchscreen_edit_select"
+    bl_label = "Select"
+
+    def draw(self, context):
+        layout = self.layout
+
+        # Edge Rings
+        op = layout.operator(
+            "mesh.loop_multi_select",
+            text="Edge Rings"
+        )
+        op.ring = True
+
+        # Boundary of Selected
+        layout.operator(
+            "mesh.region_to_loop",
+            text="Boundary of Selected"
+        )
+
+        # Shortest Path
+        layout.operator(
+            "view3d.touchscreen_shortest_path",
+            text="Shortest Path"
+        )
+
+        # Select Mirror
+        layout.operator(
+            "mesh.select_mirror",
+            text="Select Mirror"
+        )
+
+        # Inner Region
+        layout.operator(
+            "mesh.loop_to_region",
+            text="Inner Region"
+        )
+
+        # Select Linked
+        layout.operator(
+            "mesh.select_linked",
+            text="Select Linked"
+        )
+
+
+class VIEW3D_OT_edit_select_menu(bpy.types.Operator):
+    bl_idname = "view3d.edit_select_menu"
+    bl_label = "Select"
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
+        )
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_edit_select"
+        )
+
+        return {'FINISHED'}
+
+
+# ------------------------------------------------------------------------
+# EDIT MODE - SHORTEST PATH
+# ------------------------------------------------------------------------
+
+class VIEW3D_OT_touchscreen_shortest_path(bpy.types.Operator):
+    bl_idname = "view3d.touchscreen_shortest_path"
+    bl_label = "Shortest Path"
+
+    @classmethod
+    def poll(cls, context):
+        return (
+            context.mode == 'EDIT_MESH'
+            and context.active_object is not None
+            and context.active_object.type == 'MESH'
+        )
+
+    def execute(self, context):
+        obj = context.active_object
+
+        if obj is None or obj.type != 'MESH':
+            return {'CANCELLED'}
+
+        bm = bmesh.from_edit_mesh(obj.data)
+
+        select_mode = tuple(
+            context.tool_settings.mesh_select_mode
+        )
+
+        # --------------------------------------------------------------
+        # Vertex mode
+        # --------------------------------------------------------------
+
+        if select_mode == (True, False, False):
+            elements = [
+                vert
+                for vert in bm.verts
+                if vert.select
+            ]
+
+            if len(elements) != 2:
+                return {'CANCELLED'}
+
+            first, second = elements
+
+            # Already directly connected by an edge.
+            connected = any(
+                edge.other_vert(first) == second
+                for edge in first.link_edges
+            )
+
+        # --------------------------------------------------------------
+        # Edge mode
+        # --------------------------------------------------------------
+
+        elif select_mode == (False, True, False):
+            elements = [
+                edge
+                for edge in bm.edges
+                if edge.select
+            ]
+
+            if len(elements) != 2:
+                return {'CANCELLED'}
+
+            first, second = elements
+
+            # Two edges are directly connected when they share
+            # a vertex.
+            connected = bool(
+                set(first.verts) &
+                set(second.verts)
+            )
+
+        # --------------------------------------------------------------
+        # Face mode
+        # --------------------------------------------------------------
+
+        elif select_mode == (False, False, True):
+            elements = [
+                face
+                for face in bm.faces
+                if face.select
+            ]
+
+            if len(elements) != 2:
+                return {'CANCELLED'}
+
+            first, second = elements
+
+            # Two faces are directly connected when they share
+            # an edge.
+            connected = bool(
+                set(first.edges) &
+                set(second.edges)
+            )
+
+        else:
+            return {'CANCELLED'}
+
+        # --------------------------------------------------------------
+        # Don't run if the two elements are already connected.
+        # --------------------------------------------------------------
+
+        if connected:
+            return {'CANCELLED'}
+
+        # --------------------------------------------------------------
+        # Establish the first element as the active/source element.
+        # --------------------------------------------------------------
+
+        for vert in bm.verts:
+            vert.select_set(False)
+
+        for edge in bm.edges:
+            edge.select_set(False)
+
+        for face in bm.faces:
+            face.select_set(False)
+
+        first.select_set(True)
+
+        bm.select_history.clear()
+        bm.select_history.add(first)
+
+        bmesh.update_edit_mesh(
+            obj.data,
+            loop_triangles=False,
+            destructive=False
+        )
+
+        # --------------------------------------------------------------
+        # Execute Blender's Shortest Path operator.
+        # --------------------------------------------------------------
+
+        try:
+            result = bpy.ops.mesh.shortest_path_pick(
+                edge_mode='SELECT',
+                use_face_step=False,
+                use_topology_distance=False,
+                use_fill=False,
+                index=second.index
+            )
+
+        except (RuntimeError, AttributeError):
+            return {'CANCELLED'}
+
+        if 'FINISHED' not in result:
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+# ------------------------------------------------------------------------
 # POSE MODE
-# ============================================================
+# ------------------------------------------------------------------------
 
 class VIEW3D_MT_touchscreen_pose_copy(bpy.types.Menu):
     bl_idname = "VIEW3D_MT_touchscreen_pose_copy"
@@ -466,8 +938,18 @@ class VIEW3D_MT_touchscreen_pose_copy(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("pose.copy", text="Copy Selected", icon='COPYDOWN')
-        layout.operator("poselib.copy_as_asset", text="Copy as Asset", icon='ASSET_MANAGER')
+
+        layout.operator(
+            "pose.copy",
+            text="Copy Selected",
+            icon='COPYDOWN'
+        )
+
+        layout.operator(
+            "poselib.copy_as_asset",
+            text="Copy as Asset",
+            icon='ASSET_MANAGER'
+        )
 
 
 class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
@@ -475,7 +957,10 @@ class VIEW3D_OT_pose_copy_menu(bpy.types.Operator):
     bl_label = "Copy"
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_copy")
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_pose_copy"
+        )
+
         return {'FINISHED'}
 
 
@@ -486,15 +971,19 @@ class VIEW3D_MT_touchscreen_pose_paste(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        layout.operator("pose.paste", text="Paste Pose", icon='PASTEDOWN')
+        layout.operator(
+            "pose.paste",
+            text="Paste Pose",
+            icon='PASTEDOWN'
+        )
 
         op = layout.operator(
             "pose.paste",
             text="Paste Pose Flipped",
             icon='PASTEFLIPDOWN'
         )
-        op.flipped = True
 
+        op.flipped = True
 
 
 class VIEW3D_OT_pose_paste_menu(bpy.types.Operator):
@@ -502,7 +991,10 @@ class VIEW3D_OT_pose_paste_menu(bpy.types.Operator):
     bl_label = "Paste"
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_paste")
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_pose_paste"
+        )
+
         return {'FINISHED'}
 
 
@@ -513,13 +1005,22 @@ class VIEW3D_MT_touchscreen_pose_show_hide(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        op = layout.operator("pose.hide", text="Hide Selected")
+        op = layout.operator(
+            "pose.hide",
+            text="Hide Selected"
+        )
         op.unselected = False
 
-        op = layout.operator("pose.hide", text="Hide Unselected")
+        op = layout.operator(
+            "pose.hide",
+            text="Hide Unselected"
+        )
         op.unselected = True
 
-        layout.operator("pose.reveal", text="Show All")
+        layout.operator(
+            "pose.reveal",
+            text="Show All"
+        )
 
 
 class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
@@ -527,7 +1028,10 @@ class VIEW3D_OT_pose_show_hide_menu(bpy.types.Operator):
     bl_label = "Show/Hide"
 
     def execute(self, context):
-        bpy.ops.wm.call_menu(name="VIEW3D_MT_touchscreen_pose_show_hide")
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_pose_show_hide"
+        )
+
         return {'FINISHED'}
 
 
@@ -541,17 +1045,18 @@ class VIEW3D_OT_pose_insert_keyframe(bpy.types.Operator):
                 'INVOKE_DEFAULT',
                 always_prompt=True
             )
+
         except (RuntimeError, AttributeError):
             return {'CANCELLED'}
+
         return {'FINISHED'}
 
 
-# ============================================================
-# TOOLBAR LAYOUT
-# ============================================================
+# ------------------------------------------------------------------------
+# TOOLBAR WIDTH
+# ------------------------------------------------------------------------
 
-def _toolbar_layout_mode(context):
-
+def _toolbar_width_scale(context):
     try:
         system = bpy.context.preferences.system
         region = context.region
@@ -574,19 +1079,62 @@ def _toolbar_layout_mode(context):
         RuntimeError,
         ZeroDivisionError
     ):
-        width_scale = context.region.width
+        try:
+            width_scale = context.region.width
 
-    if width_scale > 120.0:
-        return 1, True
+        except AttributeError:
+            width_scale = 0.0
 
-    if width_scale > 80.0:
+    return width_scale
+
+
+def _toolbar_layout_mode(context):
+    prefs = _get_preferences()
+
+    # Blender Default
+    if (
+        prefs is None
+        or getattr(
+            prefs,
+            "native_toolbar_layout",
+            "BLENDER"
+        ) == 'BLENDER'
+    ):
+        width_scale = _toolbar_width_scale(context)
+
+        if width_scale <= 80.0:
+            return 1, False
+
+        elif width_scale <= 120.0:
+            return 2, False
+
+        else:
+            return 1, True
+
+    # Touchscreen automatic layout
+    width_scale = _toolbar_width_scale(context)
+
+    if width_scale <= 80.0:
+        return 1, False
+
+    elif width_scale <= 120.0:
         return 2, False
 
-    return 1, False
+    elif width_scale <= 160.0:
+        return 3, False
 
+    elif width_scale <= 185.0:
+        return 4, False
+
+    else:
+        return 1, True
+
+
+# ------------------------------------------------------------------------
+# BUTTON DRAWING
+# ------------------------------------------------------------------------
 
 def _draw_button(layout, item, show_text):
-
     operator, icon, text, props = item
 
     button = layout.operator(
@@ -599,52 +1147,23 @@ def _draw_button(layout, item, show_text):
         setattr(button, key, value)
 
 
-def _draw_group(layout, items, columns, show_text):
-
-    if columns == 2 and not show_text:
-
-        row = layout.row(align=True)
-        row.scale_x = 2.0
-        row.scale_y = 2.0
-
-        for item in items:
-            _draw_button(
-                row,
-                item,
-                False
-            )
-
-    else:
-
-        column = layout.column(align=True)
-        column.scale_y = 2.0
-
-        for item in items:
-            _draw_button(
-                column,
-                item,
-                show_text
-            )
-
-
-
-# ============================================================
+# ------------------------------------------------------------------------
 # MAIN TOOLBAR
-# ============================================================
+# ------------------------------------------------------------------------
 
 def draw_toolbar(self, context):
-
     layout = self.layout
     mode = context.mode
 
-    columns, show_text = _toolbar_layout_mode(context)
+    columns, show_text = _toolbar_layout_mode(
+        context
+    )
 
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
     # OBJECT MODE
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
 
     if mode == 'OBJECT':
-
         groups = [
             [
                 (
@@ -660,7 +1179,6 @@ def draw_toolbar(self, context):
                     {'action': 'SELECT'}
                 ),
             ],
-
             [
                 (
                     'view3d.duplicate_menu',
@@ -675,7 +1193,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_join',
@@ -690,7 +1207,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_undo',
@@ -705,7 +1221,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_repeat_last',
@@ -722,12 +1237,11 @@ def draw_toolbar(self, context):
             ],
         ]
 
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
     # EDIT MESH
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
 
     elif mode == 'EDIT_MESH':
-
         groups = [
             [
                 (
@@ -743,7 +1257,6 @@ def draw_toolbar(self, context):
                     {'action': 'SELECT'}
                 ),
             ],
-
             [
                 (
                     'view3d.uv_menu',
@@ -752,50 +1265,55 @@ def draw_toolbar(self, context):
                     {}
                 ),
                 (
+                    'view3d.edit_select_menu',
+                    'RESTRICT_SELECT_OFF',
+                    'Select',
+                    {}
+                ),
+            ],
+            [
+                (
                     'view3d.favorites_menu',
                     'SOLO_OFF',
                     'Quick Favorites',
                     {}
                 ),
-            ],
-
-            [
                 (
                     'view3d.fill_menu',
                     'MESH_GRID',
                     'Fill',
                     {}
                 ),
+            ],
+            [
                 (
                     'view3d.separate_menu',
                     'RESTRICT_COLOR_OFF',
                     'Separate',
                     {}
                 ),
-            ],
-
-            [
                 (
                     'view3d.simple_undo',
                     'LOOP_BACK',
                     'Undo',
                     {}
                 ),
+            ],
+            [
                 (
                     'view3d.simple_redo',
                     'LOOP_FORWARDS',
                     'Redo',
                     {}
                 ),
-            ],
-
-            [
                 (
                     'view3d.simple_repeat_last',
                     'RECOVER_LAST',
                     'Repeat Last',
                     {}
                 ),
+            ],
+            [
                 (
                     'view3d.simple_undo_history',
                     'HELP',
@@ -805,15 +1323,14 @@ def draw_toolbar(self, context):
             ],
         ]
 
-    # --------------------------------------------------------
-    # EDIT CURVE / ARMATURE
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
+    # EDIT CURVE / EDIT ARMATURE
+    # --------------------------------------------------------------------
 
     elif mode in {
         'EDIT_CURVE',
         'EDIT_ARMATURE'
     }:
-
         select = (
             'curve.select_all'
             if mode == 'EDIT_CURVE'
@@ -835,7 +1352,6 @@ def draw_toolbar(self, context):
                     {'action': 'SELECT'}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_undo',
@@ -850,7 +1366,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_repeat_last',
@@ -867,12 +1382,11 @@ def draw_toolbar(self, context):
             ],
         ]
 
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
     # POSE MODE
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
 
     elif mode == 'POSE':
-
         groups = [
             [
                 (
@@ -888,7 +1402,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.pose_insert_keyframe',
@@ -903,7 +1416,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_undo',
@@ -918,7 +1430,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_repeat_last',
@@ -935,12 +1446,11 @@ def draw_toolbar(self, context):
             ],
         ]
 
-    # --------------------------------------------------------
-    # DRAW MODE (GREASE PENCIL)
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
+    # GREASE PENCIL DRAW
+    # --------------------------------------------------------------------
 
     elif mode == 'PAINT_GREASE_PENCIL':
-
         groups = [
             [
                 (
@@ -956,7 +1466,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_undo_history',
@@ -967,9 +1476,9 @@ def draw_toolbar(self, context):
             ],
         ]
 
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
     # SCULPT / PAINT
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
 
     elif mode in {
         'SCULPT',
@@ -977,7 +1486,6 @@ def draw_toolbar(self, context):
         'PAINT_WEIGHT',
         'PAINT_TEXTURE'
     }:
-
         groups = [
             [
                 (
@@ -993,7 +1501,6 @@ def draw_toolbar(self, context):
                     {}
                 ),
             ],
-
             [
                 (
                     'view3d.simple_undo_history',
@@ -1007,18 +1514,15 @@ def draw_toolbar(self, context):
     else:
         return
 
-    # --------------------------------------------------------
-    # DRAW GROUPS
-    # --------------------------------------------------------
+    # --------------------------------------------------------------------
+    # ICON-ONLY RESPONSIVE LAYOUT
+    # --------------------------------------------------------------------
 
-    if columns == 2 and not show_text:
-
-        # One continuous 2-column grid for the whole toolbar.
-        # This removes the gaps between individual group rows.
+    if not show_text:
         grid = layout.grid_flow(
             row_major=True,
-            columns=2,
-            even_columns=True,
+            columns=columns,
+            even_columns=False,
             even_rows=False,
             align=True
         )
@@ -1033,10 +1537,11 @@ def draw_toolbar(self, context):
                     False
                 )
 
-    else:
+    # --------------------------------------------------------------------
+    # TEXT LAYOUT
+    # --------------------------------------------------------------------
 
-        # One continuous column, just like the native Blender toolbar.
-        # Draw every button consecutively so there is no gap between groups.
+    else:
         column = layout.column(
             align=True
         )
@@ -1048,13 +1553,13 @@ def draw_toolbar(self, context):
                 _draw_button(
                     column,
                     item,
-                    show_text
+                    True
                 )
 
 
-# ============================================================
+# ------------------------------------------------------------------------
 # REGISTER
-# ============================================================
+# ------------------------------------------------------------------------
 
 CLASSES = (
     VIEW3D_OT_simple_delete,
@@ -1073,14 +1578,18 @@ CLASSES = (
     VIEW3D_OT_simple_undo,
     VIEW3D_OT_simple_redo,
     VIEW3D_OT_simple_undo_history,
+
     VIEW3D_OT_simple_repeat_last,
 
     VIEW3D_MT_touchscreen_pose_copy,
     VIEW3D_OT_pose_copy_menu,
+
     VIEW3D_MT_touchscreen_pose_paste,
     VIEW3D_OT_pose_paste_menu,
+
     VIEW3D_MT_touchscreen_pose_show_hide,
     VIEW3D_OT_pose_show_hide_menu,
+
     VIEW3D_OT_pose_insert_keyframe,
 
     VIEW3D_MT_touchscreen_fill,
@@ -1093,19 +1602,18 @@ CLASSES = (
     VIEW3D_OT_show_hide_menu,
 
     VIEW3D_OT_touchscreen_clear_seam,
-    VIEW3D_MT_touchscreen_unwrap,
 
+    VIEW3D_MT_touchscreen_unwrap,
     VIEW3D_MT_touchscreen_uv,
     VIEW3D_OT_uv_menu,
+
+    VIEW3D_MT_touchscreen_edit_select,
+    VIEW3D_OT_edit_select_menu,
+    VIEW3D_OT_touchscreen_shortest_path,
 )
 
 
-# ============================================================
-# REGISTER / UNREGISTER
-# ============================================================
-
 def register():
-
     for cls in CLASSES:
         try:
             bpy.utils.register_class(cls)
@@ -1119,8 +1627,11 @@ def register():
     except Exception:
         pass
 
+    update_native_toolbar_layout()
+
 
 def unregister():
+    _remove_native_toolbar_patch()
 
     try:
         bpy.types.VIEW3D_PT_tools_active.remove(
@@ -1134,4 +1645,3 @@ def unregister():
             bpy.utils.unregister_class(cls)
         except Exception:
             pass
-
