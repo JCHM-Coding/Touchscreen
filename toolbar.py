@@ -98,14 +98,15 @@ def _native_toolbar_layout_detect(layout, region, scale_y):
     ):
         width_scale = region.width
 
-    # Touchscreen automatic layout:
+    # --------------------------------------------------------------------
+    # RESPONSIVE NATIVE TOOLBAR
     #
-    # 1 column
-    # 2 columns
-    # 3 columns
-    # 4 columns
-    # 1 column + text
-    #
+    # 0 - 80    -> 1 column
+    # 80 - 120  -> 2 columns
+    # 120 - 160 -> 3 columns
+    # 160+      -> 1 column + text
+    # --------------------------------------------------------------------
+
     if width_scale <= 80.0:
         column_count = 1
         show_text = False
@@ -117,8 +118,6 @@ def _native_toolbar_layout_detect(layout, region, scale_y):
     elif width_scale <= 160.0:
         column_count = 3
         show_text = False
-
-    
 
     else:
         column_count = 1
@@ -717,14 +716,12 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
 
-        # Select All
         op = layout.operator(
             "mesh.select_all",
             text="Select All"
         )
         op.action = 'SELECT'
 
-        # Select More / Less
         layout.operator(
             "mesh.select_more",
             text="Select More"
@@ -737,19 +734,16 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
 
         layout.separator()
 
-        # Edge Loops
         layout.operator(
             "mesh.select_edge_loop_multi",
             text="Edge Loops"
         )
 
-        # Edge Rings
         layout.operator(
             "mesh.select_edge_ring_multi",
             text="Edge Rings"
         )
 
-        # Shortest Path
         op = layout.operator(
             "mesh.shortest_path_select",
             text="Shortest Path"
@@ -758,13 +752,11 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
 
         layout.separator()
 
-        # Region to Loop
         layout.operator(
             "mesh.region_to_loop",
             text="Region to Loop"
         )
 
-        # Loop to Region
         layout.operator(
             "mesh.loop_to_region",
             text="Loop to Region"
@@ -772,7 +764,6 @@ class VIEW3D_MT_touchscreen_edit_select(bpy.types.Menu):
 
         layout.separator()
 
-        # Select Linked
         op = layout.operator(
             "mesh.select_linked",
             text="Select Linked"
@@ -1113,7 +1104,10 @@ def _toolbar_width_scale(context):
 def _toolbar_layout_mode(context):
     prefs = _get_preferences()
 
-    # Blender Default
+    # --------------------------------------------------------------------
+    # BLENDER DEFAULT
+    # --------------------------------------------------------------------
+
     if (
         prefs is None
         or getattr(
@@ -1133,7 +1127,15 @@ def _toolbar_layout_mode(context):
         else:
             return 1, True
 
-    # Touchscreen automatic layout
+    # --------------------------------------------------------------------
+    # TOUCHSCREEN RESPONSIVE LAYOUT
+    #
+    # 0 - 80    -> 1 column
+    # 80 - 120  -> 2 columns
+    # 120 - 160 -> 3 columns
+    # 160+      -> text
+    # --------------------------------------------------------------------
+
     width_scale = _toolbar_width_scale(context)
 
     if width_scale <= 80.0:
@@ -1144,8 +1146,6 @@ def _toolbar_layout_mode(context):
 
     elif width_scale <= 160.0:
         return 3, False
-
-    
 
     else:
         return 1, True
@@ -1534,29 +1534,96 @@ def draw_toolbar(self, context):
     # --------------------------------------------------------------------
 
     if not show_text:
-        grid = layout.grid_flow(
-            row_major=True,
-            columns=columns,
-            even_columns=False,
-            even_rows=False,
-            align=True
-        )
 
-        grid.scale_y = 2.0
+        # --------------------------------------------------------------
+        # 3 COLUMNS - MANUAL LAYOUT
+        # --------------------------------------------------------------
 
-        for group in groups:
-            for item in group:
-                _draw_button(
-                    grid,
-                    item,
-                    False
-                )
+        if columns == 3:
+
+            row = layout.row(
+                align=True
+            )
+
+            col1 = row.column(
+                align=True
+            )
+
+            col2 = row.column(
+                align=True
+            )
+
+            col3 = row.column(
+                align=True
+            )
+
+            # ----------------------------------------------------------
+            # Minimum width for each column.
+            #
+            # 5.0 gives the buttons substantially more width than the
+            # icon-only minimum. This can be tuned later.
+            # ----------------------------------------------------------
+
+            col1.ui_units_x = 2.0
+            col2.ui_units_x = 2.0
+            col3.ui_units_x = 2.0
+
+            col1.scale_y = 2.0
+            col2.scale_y = 2.0
+            col3.scale_y = 2.0
+
+            # ----------------------------------------------------------
+            # Distribute complete groups between the 3 columns.
+            # ----------------------------------------------------------
+
+            for index, group in enumerate(groups):
+
+                if index % 3 == 0:
+                    column = col1
+
+                elif index % 3 == 1:
+                    column = col2
+
+                else:
+                    column = col3
+
+                for item in group:
+                    _draw_button(
+                        column,
+                        item,
+                        False
+                    )
+
+        # --------------------------------------------------------------
+        # 1 / 2 COLUMNS - GRID FLOW
+        # --------------------------------------------------------------
+
+        else:
+
+            grid = layout.grid_flow(
+                row_major=True,
+                columns=columns,
+                even_columns=False,
+                even_rows=False,
+                align=True
+            )
+
+            grid.scale_y = 2.0
+
+            for group in groups:
+                for item in group:
+                    _draw_button(
+                        grid,
+                        item,
+                        False
+                    )
 
     # --------------------------------------------------------------------
     # TEXT LAYOUT
     # --------------------------------------------------------------------
 
     else:
+
         column = layout.column(
             align=True
         )
