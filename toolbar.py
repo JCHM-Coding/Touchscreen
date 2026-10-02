@@ -1558,10 +1558,7 @@ def draw_toolbar(self, context):
             )
 
             # ----------------------------------------------------------
-            # Minimum width for each column.
-            #
-            # 5.0 gives the buttons substantially more width than the
-            # icon-only minimum. This can be tuned later.
+            # Keep the existing width exactly as before.
             # ----------------------------------------------------------
 
             col1.ui_units_x = 2.0
@@ -1573,26 +1570,40 @@ def draw_toolbar(self, context):
             col3.scale_y = 2.0
 
             # ----------------------------------------------------------
-            # Distribute complete groups between the 3 columns.
+            # PRESERVE THE EXACT BUTTON ORDER.
+            #
+            # Buttons are assigned individually:
+            #
+            # 1 -> col1
+            # 2 -> col2
+            # 3 -> col3
+            # 4 -> col1
+            # 5 -> col2
+            # 6 -> col3
+            # ...
             # ----------------------------------------------------------
 
-            for index, group in enumerate(groups):
+            button_index = 0
 
-                if index % 3 == 0:
-                    column = col1
-
-                elif index % 3 == 1:
-                    column = col2
-
-                else:
-                    column = col3
-
+            for group in groups:
                 for item in group:
+
+                    if button_index % 3 == 0:
+                        column = col1
+
+                    elif button_index % 3 == 1:
+                        column = col2
+
+                    else:
+                        column = col3
+
                     _draw_button(
                         column,
                         item,
                         False
                     )
+
+                    button_index += 1
 
         # --------------------------------------------------------------
         # 1 / 2 COLUMNS - GRID FLOW
