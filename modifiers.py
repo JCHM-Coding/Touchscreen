@@ -101,6 +101,34 @@ def safe_prop(obj, name):
 
     return hasattr(obj, name)
 
+
+def _get_preferences():
+
+    addon_name = __package__.split(".")[0]
+
+    addon = bpy.context.preferences.addons.get(
+        addon_name
+    )
+
+    if addon is None:
+        return None
+
+    return addon.preferences
+
+
+def _extra_options_enabled():
+
+    prefs = _get_preferences()
+
+    if prefs is None:
+        return False
+
+    return getattr(
+        prefs,
+        "modifiers_extra_options",
+        False
+    )
+
 def save_context(context):
 
     obj = context.active_object
@@ -2646,6 +2674,187 @@ class VIEW3D_OT_apply_simple_modifier(
 
         return {'FINISHED'}
 
+class VIEW3D_OT_toggle_modifier_viewport(
+    bpy.types.Operator
+):
+
+    bl_idname = "view3d.toggle_modifier_viewport"
+    bl_label = "Toggle Modifier Viewport"
+
+    index: bpy.props.IntProperty()
+
+    def execute(self, context):
+
+        obj = get_active_object(context)
+
+        if obj is None:
+            return {'CANCELLED'}
+
+        modifier = get_modifier(
+            obj,
+            self.index
+        )
+
+        if modifier is None:
+            return {'CANCELLED'}
+
+        modifier.show_viewport = not modifier.show_viewport
+
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_show_all_modifiers(
+    bpy.types.Operator
+):
+
+    bl_idname = "view3d.show_all_modifiers"
+    bl_label = "Show All Modifiers"
+
+    def execute(self, context):
+
+        obj = get_active_object(context)
+
+        if obj is None:
+            return {'CANCELLED'}
+
+        for modifier in obj.modifiers:
+            modifier.show_viewport = True
+
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_hide_all_modifiers(
+    bpy.types.Operator
+):
+
+    bl_idname = "view3d.hide_all_modifiers"
+    bl_label = "Hide All Modifiers"
+
+    def execute(self, context):
+
+        obj = get_active_object(context)
+
+        if obj is None:
+            return {'CANCELLED'}
+
+        for modifier in obj.modifiers:
+            modifier.show_viewport = False
+
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_apply_all_modifiers(
+    bpy.types.Operator
+):
+
+    bl_idname = "view3d.apply_all_modifiers"
+    bl_label = "Apply All Modifiers"
+
+    def execute(self, context):
+
+        obj = get_active_object(context)
+
+        if obj is None:
+            return {'CANCELLED'}
+
+        state = enter_object_mode(context)
+
+        if state is None:
+            self.report(
+                {'ERROR'},
+                "Could not enter Object Mode"
+            )
+            return {'CANCELLED'}
+
+        try:
+
+            set_active_only(
+                context,
+                obj
+            )
+
+            while obj.modifiers:
+
+                modifier_name = obj.modifiers[0].name
+
+                bpy.ops.object.modifier_apply(
+                    modifier=modifier_name
+                )
+
+            context.scene.simple_modifier_index = 0
+
+        except Exception as error:
+
+            restore_context(
+                context,
+                state
+            )
+
+            self.report(
+                {'ERROR'},
+                f"Could not apply all modifiers: {error}"
+            )
+
+            return {'CANCELLED'}
+
+        restore_context(
+            context,
+            state
+        )
+
+        return {'FINISHED'}
+
+
+class VIEW3D_OT_remove_all_modifiers(
+    bpy.types.Operator
+):
+
+    bl_idname = "view3d.remove_all_modifiers"
+    bl_label = "Remove All Modifiers"
+
+    def execute(self, context):
+
+        obj = get_active_object(context)
+
+        if obj is None:
+            return {'CANCELLED'}
+
+        state = enter_object_mode(context)
+
+        if state is None:
+            return {'CANCELLED'}
+
+        try:
+
+            while obj.modifiers:
+                obj.modifiers.remove(
+                    obj.modifiers[-1]
+                )
+
+            context.scene.simple_modifier_index = 0
+
+        except Exception as error:
+
+            restore_context(
+                context,
+                state
+            )
+
+            self.report(
+                {'ERROR'},
+                f"Could not remove all modifiers: {error}"
+            )
+
+            return {'CANCELLED'}
+
+        restore_context(
+            context,
+            state
+        )
+
+        return {'FINISHED'}
+
+
 class VIEW3D_OT_move_modifier_up(
     bpy.types.Operator
 ):
@@ -4736,6 +4945,32 @@ class VIEW3D_PT_simple_modifiers(
 
                 op.index = index
 
+                if _extra_options_enabled():
+
+                    op = row.operator(
+                        "view3d.apply_simple_modifier",
+                        text="",
+                        icon='CHECKMARK'
+                    )
+                    op.index = index
+
+                    op = row.operator(
+                        "view3d.remove_simple_modifier",
+                        text="",
+                        icon='X'
+                    )
+                    op.index = index
+
+                    row.operator(
+                        "view3d.toggle_modifier_viewport",
+                        text="",
+                        icon=(
+                            'HIDE_OFF'
+                            if modifier.show_viewport
+                            else 'HIDE_ON'
+                        )
+                    ).index = index
+
         # =================================================
         # OPCIONES
         # =================================================
@@ -4761,28 +4996,77 @@ class VIEW3D_PT_simple_modifiers(
                 modifier
             )
 
+            if not _extra_options_enabled():
+
+                row = box.row(
+                    align=True
+                )
+
+                op = row.operator(
+                    "view3d.apply_simple_modifier",
+                    text="Aply",
+                    icon='CHECKMARK'
+                )
+
+                op.index = (
+                    context.scene.simple_modifier_index
+                )
+
+                op = row.operator(
+                    "view3d.remove_simple_modifier",
+                    text="Remove",
+                    icon='X'
+                )
+
+                op.index = (
+                    context.scene.simple_modifier_index
+                )
+
+        # =================================================
+        # GLOBAL EXTRA OPTIONS
+        # =================================================
+
+        if _extra_options_enabled() and obj.modifiers:
+
+            layout.separator()
+
+            box = layout.box()
+
+            box.label(
+                text="Global",
+                icon='MODIFIER'
+            )
+
             row = box.row(
                 align=True
             )
 
-            op = row.operator(
-                "view3d.apply_simple_modifier",
-                text="Apply",
+            row.operator(
+                "view3d.show_all_modifiers",
+                text="Show All",
+                icon='HIDE_OFF'
+            )
+
+            row.operator(
+                "view3d.hide_all_modifiers",
+                text="Hide All",
+                icon='HIDE_ON'
+            )
+
+            row = box.row(
+                align=True
+            )
+
+            row.operator(
+                "view3d.apply_all_modifiers",
+                text="Apply All",
                 icon='CHECKMARK'
             )
 
-            op.index = (
-                context.scene.simple_modifier_index
-            )
-
-            op = row.operator(
-                "view3d.remove_simple_modifier",
-                text="Delete",
+            row.operator(
+                "view3d.remove_all_modifiers",
+                text="Remove All",
                 icon='X'
-            )
-
-            op.index = (
-                context.scene.simple_modifier_index
             )
 
 CLASSES=(
@@ -4790,6 +5074,11 @@ CLASSES=(
     VIEW3D_OT_select_modifier,
     VIEW3D_OT_remove_simple_modifier,
     VIEW3D_OT_apply_simple_modifier,
+    VIEW3D_OT_toggle_modifier_viewport,
+    VIEW3D_OT_show_all_modifiers,
+    VIEW3D_OT_hide_all_modifiers,
+    VIEW3D_OT_apply_all_modifiers,
+    VIEW3D_OT_remove_all_modifiers,
     VIEW3D_OT_move_modifier_up,
     VIEW3D_OT_move_modifier_down,
     VIEW3D_OT_multires_subdivide,
