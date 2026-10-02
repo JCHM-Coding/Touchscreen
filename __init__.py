@@ -5,7 +5,7 @@
 bl_info = {
     "name": "Touchscreen",
     "author": "JCHM",
-    "version": (1, 0, 1),
+    "version": (1, 1, 0),
     "blender": (5, 3, 0),
     "location": "Edit > Preferences > Add-ons",
     "description": "Touch-screen helpers organized into independently enabled modules.",
@@ -166,6 +166,12 @@ class TOUCHSCREEN_Preferences(
         update=_u("modifiers")
     )
 
+    modifiers_extra_options: bpy.props.BoolProperty(
+        name="Modifiers Extra Options",
+        description="Show Apply, Remove and viewport visibility controls for modifiers",
+        default=False,
+    )
+
     # --------------------------------------------------------
     # TOOLBAR LAYOUT
     # --------------------------------------------------------
@@ -214,6 +220,12 @@ class TOUCHSCREEN_Preferences(
                 prop,
                 text=label
             )
+
+        box.prop(
+            self,
+            "modifiers_extra_options",
+            text="Modifiers Extra Options"
+        )
 
         # ----------------------------------------------------
         # TOOLBAR

@@ -4949,14 +4949,14 @@ class VIEW3D_PT_simple_modifiers(
 
                     op = row.operator(
                         "view3d.apply_simple_modifier",
-                        text="",
+                        text="Apply",
                         icon='CHECKMARK'
                     )
                     op.index = index
 
                     op = row.operator(
                         "view3d.remove_simple_modifier",
-                        text="",
+                        text="Remove",
                         icon='X'
                     )
                     op.index = index
@@ -5004,7 +5004,7 @@ class VIEW3D_PT_simple_modifiers(
 
                 op = row.operator(
                     "view3d.apply_simple_modifier",
-                    text="Apply",
+                    text="",
                     icon='CHECKMARK'
                 )
 
@@ -5014,7 +5014,7 @@ class VIEW3D_PT_simple_modifiers(
 
                 op = row.operator(
                     "view3d.remove_simple_modifier",
-                    text="Remove",
+                    text="",
                     icon='X'
                 )
 
