@@ -410,6 +410,98 @@ class VIEW3D_OT_simple_join(bpy.types.Operator):
 
 
 # ------------------------------------------------------------------------
+# JOIN + PARENTING MENU
+# ------------------------------------------------------------------------
+
+class VIEW3D_MT_touchscreen_parenting(bpy.types.Menu):
+    bl_label = "Parenting"
+
+    def draw(self, context):
+        layout = self.layout
+
+        op = layout.operator(
+            "object.parent_set",
+            text="Set Parent to Object",
+            icon='OBJECT_DATA'
+        )
+        op.type = 'OBJECT'
+        layout.menu(
+            "VIEW3D_MT_touchscreen_parent_armature",
+            text="Set Parent to Armature",
+            icon='ARMATURE_DATA'
+        )
+
+        layout.separator()
+
+        op = layout.operator(
+            "object.parent_clear",
+            text="Clear Parent",
+            icon='X'
+        )
+        op.type = 'CLEAR'
+
+
+class VIEW3D_MT_touchscreen_parent_armature(bpy.types.Menu):
+    bl_label = "Set Parent to Armature"
+
+    def draw(self, context):
+        layout = self.layout
+
+        op = layout.operator(
+            "object.parent_set",
+            text="Armature Deform",
+            icon='ARMATURE_DATA'
+        )
+        op.type = 'ARMATURE'
+
+        op = layout.operator(
+            "object.parent_set",
+            text="Automatic Weights",
+            icon='MOD_ARMATURE'
+        )
+        op.type = 'ARMATURE_AUTO'
+
+        op = layout.operator(
+            "object.parent_set",
+            text="Bone",
+            icon='BONE_DATA'
+        )
+        op.type = 'BONE'
+
+
+class VIEW3D_MT_touchscreen_join_parenting(bpy.types.Menu):
+    bl_label = "Join / Parenting"
+
+    def draw(self, context):
+        layout = self.layout
+
+        layout.operator(
+            "view3d.simple_join",
+            text="Join",
+            icon='AUTOMERGE_ON'
+        )
+
+        layout.separator()
+
+        layout.menu(
+            "VIEW3D_MT_touchscreen_parenting",
+            text="Parenting",
+            icon='CONSTRAINT'
+        )
+
+
+class VIEW3D_OT_join_parenting_menu(bpy.types.Operator):
+    bl_idname = "view3d.join_parenting_menu"
+    bl_label = "Join / Parenting"
+
+    def execute(self, context):
+        bpy.ops.wm.call_menu(
+            name="VIEW3D_MT_touchscreen_join_parenting"
+        )
+        return {'FINISHED'}
+
+
+# ------------------------------------------------------------------------
 # UNDO / REDO / HISTORY
 # ------------------------------------------------------------------------
 
@@ -1216,7 +1308,7 @@ def draw_toolbar(self, context):
             ],
             [
                 (
-                    'view3d.simple_join',
+                    'view3d.join_parenting_menu',
                     'ADD',
                     'Join',
                     {}
@@ -1667,6 +1759,10 @@ CLASSES = (
     VIEW3D_OT_favorites_menu,
 
     VIEW3D_OT_simple_join,
+    VIEW3D_MT_touchscreen_parenting,
+    VIEW3D_MT_touchscreen_parent_armature,
+    VIEW3D_MT_touchscreen_join_parenting,
+    VIEW3D_OT_join_parenting_menu,
 
     VIEW3D_OT_simple_undo,
     VIEW3D_OT_simple_redo,
