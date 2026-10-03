@@ -196,6 +196,16 @@ class TOUCHSCREEN_Preferences(
     )
 
     # --------------------------------------------------------
+    # UI STATE
+    # --------------------------------------------------------
+
+    show_extra_options: bpy.props.BoolProperty(
+        name="Extra Options",
+        default=False,
+        options={"HIDDEN"},
+    )
+
+    # --------------------------------------------------------
     # DRAW
     # --------------------------------------------------------
 
@@ -221,21 +231,11 @@ class TOUCHSCREEN_Preferences(
                 text=label
             )
 
-        box.prop(
-            self,
-            "modifiers_extra_options",
-            text="Modifiers Extra Options"
-        )
-
         # ----------------------------------------------------
-        # TOOLBAR
+        # EXTRA OPTIONS
         # ----------------------------------------------------
 
         box = layout.box()
-
-        box.label(
-            text="Toolbar"
-        )
 
         row = box.row(
             align=True
@@ -243,30 +243,68 @@ class TOUCHSCREEN_Preferences(
 
         row.prop(
             self,
-            "native_toolbar_layout",
-            expand=True
+            "show_extra_options",
+            text="",
+            icon="TRIA_DOWN" if self.show_extra_options else "TRIA_RIGHT",
+            emboss=False
         )
 
-        # ----------------------------------------------------
-        # VIEWPORT CONTROLS SIZE
-        # ----------------------------------------------------
-
-        box = layout.box()
-
-        box.label(
-            text="Viewport Controls Size"
+        row.label(
+            text="Extra Options"
         )
 
-        row = box.row(
-            align=True
-        )
+        if self.show_extra_options:
 
-        row.prop(
-            self,
-            "viewport_controls_2x",
-            text="2x Size",
-            toggle=True
-        )
+            # ------------------------------------------------
+            # MODIFIERS EXTRA OPTIONS
+            # ------------------------------------------------
+
+            box.prop(
+                self,
+                "modifiers_extra_options",
+                text="Modifiers Extra Options"
+            )
+
+            # ------------------------------------------------
+            # TOOLBAR
+            # ------------------------------------------------
+
+            subbox = box.box()
+
+            subbox.label(
+                text="Toolbar"
+            )
+
+            row = subbox.row(
+                align=True
+            )
+
+            row.prop(
+                self,
+                "native_toolbar_layout",
+                expand=True
+            )
+
+            # ------------------------------------------------
+            # VIEWPORT CONTROLS SIZE
+            # ------------------------------------------------
+
+            subbox = box.box()
+
+            subbox.label(
+                text="Viewport Controls Size"
+            )
+
+            row = subbox.row(
+                align=True
+            )
+
+            row.prop(
+                self,
+                "viewport_controls_2x",
+                text="2x Size",
+                toggle=True
+            )
 
 
 # ============================================================
