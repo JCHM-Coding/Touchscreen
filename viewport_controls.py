@@ -15,13 +15,16 @@ FRONT_ID = "NAVIGATION_FRONT_GT"
 SIDE_ID = "NAVIGATION_SIDE_GT"
 TOP_ID = "NAVIGATION_TOP_GT"
 INVERT_ID = "NAVIGATION_INVERT_GT"
-VIEW_ROLL_ID = "NAVIGATION_VIEW_ROLL_GT"
+ROLL_ID = "NAVIGATION_ROLL_GT"
 
 
 # ---------------------------------------------------------
 # CONSTANTS
 # ---------------------------------------------------------
 
+# Viewport Controls are intentionally 60% of the original design size.
+# Blender UI Resolution Scale then scales the whole control set coherently.
+BASE_INTERFACE_SCALE = 0.60
 BUTTON_RADIUS = 16.0
 BUTTON_HIT_RADIUS = 24.0
 
@@ -30,52 +33,52 @@ CIRCLE_SEGMENTS = 128
 
 ICON_SIZE = 22.8
 
-# The Viewport Controls UI is intentionally smaller than the original
-# standalone version, while still following Blender's interface scale.
-VIEWPORT_UI_BASE_SCALE = 0.60
-EDGE_GAP = 8.0
-
 
 def _viewport_scale():
-    """Return the final Viewport Controls scale."""
+    """Scale the complete control set with Blender UI Resolution Scale."""
     try:
-        prefs = bpy.context.preferences.addons[__package__].preferences
-        viewport_2x = 2.0 if getattr(prefs, "viewport_controls_2x", False) else 1.0
+        addon = bpy.context.preferences.addons.get(__package__)
+        prefs = addon.preferences if addon else None
         ui_scale = float(getattr(bpy.context.preferences.system, "ui_scale", 1.0))
-        return VIEWPORT_UI_BASE_SCALE * viewport_2x * ui_scale
+        double = 2.0 if getattr(prefs, "viewport_controls_2x", False) else 1.0
+        return BASE_INTERFACE_SCALE * ui_scale * double
     except Exception:
-        return VIEWPORT_UI_BASE_SCALE
+        return BASE_INTERFACE_SCALE
 
 
-def _find_region(context, region_type):
-    """Find a visible region of the requested type in the current VIEW_3D."""
-    area = context.area
+def _region_by_type(area, region_type):
     if area is None:
         return None
-
-    for region in area.regions:
-        if region.type == region_type and region.width > 1 and region.height > 1:
+    for region in getattr(area, "regions", ()):
+        if region.type == region_type:
             return region
-
     return None
 
 
-def _sidebar_left_x(context, window_region):
-    """Return the Sidebar's left edge in WINDOW-region local coordinates."""
-    sidebar = _find_region(context, 'UI')
-    if sidebar is not None:
-        return sidebar.x - window_region.x
-
-    return window_region.width
+def _visible_region(region):
+    return region is not None and region.width > 1 and region.height > 1
 
 
-def _asset_shelf_top_y(context, window_region):
-    """Return Asset Shelf top edge in WINDOW-region local coordinates."""
-    shelf = _find_region(context, 'ASSET_SHELF')
-    if shelf is None:
+def _sidebar_left_in_window(context):
+    """Return the Sidebar's left edge in WINDOW-region coordinates."""
+    area = context.area
+    window_region = context.region
+    ui_region = _region_by_type(area, 'UI')
+    if not (_visible_region(window_region) and _visible_region(ui_region)):
         return None
+    if getattr(ui_region, "x", 0) <= getattr(window_region, "x", 0):
+        return None
+    return float(ui_region.x - window_region.x)
 
-    return shelf.y + shelf.height - window_region.y
+
+def _asset_shelf_top_in_window(context):
+    """Return the Asset Shelf top edge in WINDOW-region coordinates."""
+    area = context.area
+    window_region = context.region
+    shelf = _region_by_type(area, 'ASSET_SHELF')
+    if not (_visible_region(window_region) and _visible_region(shelf)):
+        return None
+    return float(shelf.y + shelf.height - window_region.y)
 
 
 # ---------------------------------------------------------
@@ -83,8 +86,6 @@ def _asset_shelf_top_y(context, window_region):
 # ---------------------------------------------------------
 
 def draw_lines(points, color=(0.8, 0.8, 0.8, 1.0), width=2.0):
-
-    width *= _viewport_scale()
 
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
 
@@ -181,8 +182,6 @@ def draw_filled_circle(x, y, radius, color):
 
 def draw_maximize_icon(x, y, size, color):
 
-    size *= _viewport_scale()
-
     s = size
     a = s * 0.42
     b = s * 0.16
@@ -210,8 +209,6 @@ def draw_maximize_icon(x, y, size, color):
 
 def draw_quad_icon(x, y, size, color):
 
-    size *= _viewport_scale()
-
     s = size * 0.42
 
     left = x - s
@@ -237,8 +234,6 @@ def draw_quad_icon(x, y, size, color):
 
 
 def draw_lock_icon(x, y, size, color):
-
-    size *= _viewport_scale()
 
     s = size * 0.34
 
@@ -283,8 +278,6 @@ def draw_lock_icon(x, y, size, color):
 
 
 def draw_letter_icon(x, y, letter, size, color):
-
-    size *= _viewport_scale()
 
     s = size * 0.34
     w = size * 0.20
@@ -850,41 +843,37 @@ class NAVIGATION_INVERT_GT(NAVIGATION_BaseGizmo):
 
 
 # ---------------------------------------------------------
-# VIEW ROLL
+# ROLL ANGLE
 # ---------------------------------------------------------
 
-class NAVIGATION_VIEW_ROLL_GT(NAVIGATION_BaseGizmo):
+class NAVIGATION_ROLL_GT(NAVIGATION_BaseGizmo):
 
-    bl_idname = VIEW_ROLL_ID
+    bl_idname = ROLL_ID
 
-    def execute_function(self, context):
-
+    def invoke(self, context, event):
+        # Native Blender modal View Roll: press starts it, release finishes it.
+        self.clicked = True
+        if context.area:
+            context.area.tag_redraw()
         try:
-            # Fixed Roll Angle step, matching Blender's view-roll operator.
-            bpy.ops.view3d.view_roll(
-                type='ANGLE',
-                angle=math.radians(15.0)
+            return bpy.ops.view3d.view_roll(
+                'INVOKE_DEFAULT',
+                type='ANGLE'
             )
         except Exception as e:
-            print("Navigation - View Roll:", e)
+            self.clicked = False
+            print("Navigation - Roll Angle:", e)
+            return {'CANCELLED'}
 
     def draw(self, context):
-
         self.draw_button_background()
-
         x = self.matrix_world[0][3]
         y = self.matrix_world[1][3]
-
         draw_letter_icon(
-            x,
-            y,
-            "R",
-            ICON_SIZE,
-            self.get_icon_color()
+            x, y, "R", ICON_SIZE, self.get_icon_color()
         )
 
     def draw_select(self, context, select_id=0):
-
         self.draw_preset_box(
             self.matrix_world,
             select_id=select_id
@@ -947,45 +936,30 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         self.invert.scale_basis = 1.1
         self.invert.use_tooltip = True
 
-        self.view_roll = self.gizmos.new(VIEW_ROLL_ID)
-        self.view_roll.scale_basis = 1.1
-        self.view_roll.use_tooltip = True
+        self.roll = self.gizmos.new(ROLL_ID)
+        self.roll.scale_basis = 1.1
+        self.roll.use_tooltip = True
 
     def draw_prepare(self, context):
 
         region = context.region
-
         width = region.width
         height = region.height
-
         space = context.space_data
 
         region_quadviews = ()
-
         if space is not None:
-
-            region_quadviews = getattr(
-                space,
-                "region_quadviews",
-                ()
-            )
+            region_quadviews = getattr(space, "region_quadviews", ())
 
         quad_view_active = len(region_quadviews) > 0
 
-        # Check if the screen/area is in full screen mode (maximized or fullscreen)
         is_full_screen = (
             getattr(context.screen, "show_fullscreen", False) or
             getattr(context.area, "show_fullscreen", False)
         )
 
-        # Detect the Sidebar and Asset Shelf through SpaceView3D when the
-        # properties are available. This is more reliable on touch/Android
-        # than relying on UI region dimensions, which can remain non-zero
-        # even while the region is not actually visible.
         n_panel_open = False
         asset_shelf_open = False
-
-        space = context.space_data
 
         if space is not None:
             n_panel_prop = getattr(space, "show_region_ui", None)
@@ -993,118 +967,89 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
 
             if n_panel_prop is not None:
                 n_panel_open = bool(n_panel_prop)
-
             if shelf_prop is not None:
                 asset_shelf_open = bool(shelf_prop)
 
-        # Fallback for Blender builds that do not expose the SpaceView3D
-        # visibility properties.
-        if (
-            (getattr(space, "show_region_ui", None) is None)
-            or
-            (getattr(space, "show_region_asset_shelf", None) is None)
-        ) and context.area:
-
-            for r in context.area.regions:
-
-                if (
-                    r.type == 'UI'
-                    and r.width > 1
-                    and getattr(space, "show_region_ui", None) is None
-                ):
-                    n_panel_open = True
-
-                elif (
-                    r.type == 'ASSET_SHELF'
-                    and r.height > 1
-                    and getattr(space, "show_region_asset_shelf", None) is None
-                ):
-                    asset_shelf_open = True
-
-        # The controls remain in the WINDOW overlay. The Sidebar and Asset
-        # Shelf are only used as geometric references, like Blender's native
-        # navigation overlay.
-        if n_panel_open:
-            self.maximize.hide = True
-            self.frame.hide = True
-            self.quad.hide = True
-            self.lock.hide = True
-            self.front.hide = True
-            self.side.hide = True
-            self.top.hide = True
-            self.invert.hide = True
-            self.view_roll.hide = True
-            return
+        # Fallback for Android/custom builds without the SpaceView3D flags.
+        if context.area:
+            if getattr(space, "show_region_ui", None) is None:
+                n_panel_open = _visible_region(
+                    _region_by_type(context.area, 'UI')
+                )
+            if getattr(space, "show_region_asset_shelf", None) is None:
+                asset_shelf_open = _visible_region(
+                    _region_by_type(context.area, 'ASSET_SHELF')
+                )
 
         scale = _viewport_scale()
-        step = 45 * scale
+        step = 45.0 * scale
         radius = BUTTON_RADIUS * scale
-        edge_gap = EDGE_GAP * scale
 
-        # Use the Sidebar's actual left edge as the horizontal reference.
-        if n_panel_open:
-            sidebar_left = _sidebar_left_x(context, region)
-            x = sidebar_left - edge_gap - radius
+        # Keep our gizmos in WINDOW, but use the Sidebar's actual edge
+        # as the horizontal reference, just like Blender's overlay.
+        sidebar_left = (
+            _sidebar_left_in_window(context)
+            if n_panel_open else None
+        )
+
+        if sidebar_left is not None:
+            x = sidebar_left - (radius + 8.0 * scale)
         else:
-            x = width - edge_gap - radius
+            x = width - (30.0 * scale)
 
-        x = max(radius + edge_gap, min(x, width - radius - edge_gap))
-
-        # =================================================
-        # NORMAL / FULL SCREEN VIEW
-        # =================================================
+        # The WINDOW region gets shorter when the Asset Shelf is visible.
+        # Its top edge is therefore the vertical reference for the controls.
+        shelf_top = (
+            _asset_shelf_top_in_window(context)
+            if asset_shelf_open else None
+        )
 
         if not quad_view_active:
 
-            shelf_top = _asset_shelf_top_y(context, region) if asset_shelf_open else None
-
             if shelf_top is not None:
-                # Keep the controls on the right and just above the Asset Shelf.
-                # The shelf edge determines the vertical origin instead of the
-                # old fixed 20% viewport position.
-                bottom_y = shelf_top + edge_gap + radius
-                positions = (
-                    bottom_y + step * 3,  # Maximize
-                    bottom_y + step * 2,  # Frame
-                    bottom_y + step,      # Quad
-                    bottom_y,             # View Roll
-                )
+                # Push the lower part of the stack upward so the shelf
+                # never makes the controls drop toward the bottom.
+                bottom_y = shelf_top + radius + 10.0 * scale
+                center_y = bottom_y + step * 1.15
             else:
                 center_y = height * 0.20
-                positions = (
-                    center_y + step * 1.5,
-                    center_y + step * 0.5,
-                    center_y - step * 0.5,
-                    center_y - step * 1.5,
-                )
 
-            self.maximize.matrix_basis = Matrix.Translation((x, positions[0], 0))
-            self.frame.matrix_basis = Matrix.Translation((x, positions[1], 0))
-            self.quad.matrix_basis = Matrix.Translation((x, positions[2], 0))
-            self.view_roll.matrix_basis = Matrix.Translation((x, positions[3], 0))
+            self.maximize.matrix_basis = Matrix.Translation(
+                (x, center_y + step, 0)
+            )
+            self.frame.matrix_basis = Matrix.Translation(
+                (x, center_y, 0)
+            )
+            self.quad.matrix_basis = Matrix.Translation(
+                (x, center_y - step, 0)
+            )
+            self.roll.matrix_basis = Matrix.Translation(
+                (x, center_y - step * 2, 0)
+            )
 
             self.maximize.hide = bool(is_full_screen)
             self.frame.hide = False
             self.quad.hide = False
-            self.view_roll.hide = False
+            self.roll.hide = False
 
             self.lock.hide = True
             self.front.hide = True
             self.side.hide = True
             self.top.hide = True
             self.invert.hide = True
-
             return
 
         # =================================================
         # QUAD VIEW
         # =================================================
 
-        y = edge_gap + radius
+        # Raise the horizontal strip above the Asset Shelf tabs.
+        if shelf_top is not None:
+            y = shelf_top + radius + 12.0 * scale
+        else:
+            y = 30.0 * scale
 
-        # Quad View keeps the controls horizontal. View Roll is added to the
-        # same row; Maximize is not part of the Quad View row.
-        quad_gizmos = (
+        buttons = (
             self.frame,
             self.quad,
             self.lock,
@@ -1112,37 +1057,28 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
             self.side,
             self.top,
             self.invert,
-            self.view_roll,
+            self.roll,
         )
 
-        total_buttons = len(quad_gizmos)
-        horizontal_step = 45 * scale
+        total_buttons = len(buttons)
+        horizontal_step = 45.0 * scale
         center_x = width * 0.5
         start_x = center_x - (
-            horizontal_step * (total_buttons - 1) / 2
+            horizontal_step * (total_buttons - 1) / 2.0
         )
 
-        for index, gizmo in enumerate(quad_gizmos):
+        self.maximize.hide = True
+
+        for index, gizmo in enumerate(buttons):
             gizmo.matrix_basis = Matrix.Translation(
                 (start_x + horizontal_step * index, y, 0)
             )
-
-        self.maximize.hide = True
-        self.frame.hide = False
-        self.quad.hide = False
-        self.lock.hide = False
-        self.view_roll.hide = False
-
-        # -------------------------------------------------
-        # Lock Rotation
-        # -------------------------------------------------
+            gizmo.hide = False
 
         locked = False
-
         region_3d = context.region_data
 
         if region_3d is not None:
-
             if hasattr(region_3d, "lock_rotation"):
                 locked = region_3d.lock_rotation
 
@@ -1151,22 +1087,13 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         self.top.hide = locked
         self.invert.hide = locked
 
-        # -------------------------------------------------
-        # Axis selection state
-        # -------------------------------------------------
-
         if self.front.clicked:
-
             self.side.clicked = False
             self.top.clicked = False
-
         elif self.side.clicked:
-
             self.front.clicked = False
             self.top.clicked = False
-
         elif self.top.clicked:
-
             self.front.clicked = False
             self.side.clicked = False
 
@@ -1184,7 +1111,7 @@ classes = (
     NAVIGATION_SIDE_GT,
     NAVIGATION_TOP_GT,
     NAVIGATION_INVERT_GT,
-    NAVIGATION_VIEW_ROLL_GT,
+    NAVIGATION_ROLL_GT,
     NAVIGATION_CUSTOM_GGT,
 )
 
