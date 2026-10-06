@@ -1010,7 +1010,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
                 # Push the lower part of the stack upward so the shelf
                 # never makes the controls drop toward the bottom.
                 bottom_y = shelf_top + radius + 10.0 * scale
-                center_y = bottom_y + step * 1.15
+                center_y = bottom_y + step * 2.0
             else:
                 center_y = height * 0.20
 
@@ -1051,7 +1051,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         if shelf_top is not None:
             shelf_top_local = shelf_top - region.y
             if shelf_top_local > 0.0:
-                y = shelf_top_local + radius + 12.0 * scale
+                y = shelf_top_local + radius + 28.0 * scale
 
         # View Roll is intentionally not part of Quad View.
         buttons = (
