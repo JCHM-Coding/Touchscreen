@@ -1043,12 +1043,17 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         # QUAD VIEW
         # =================================================
 
-        # Raise the horizontal strip above the Asset Shelf tabs.
+        # Keep the upper two Quad View panes exactly where they were.
+        # Only the lower panes are raised when the Asset Shelf occupies
+        # the bottom of the area.  shelf_top is in WINDOW coordinates,
+        # so convert it to this individual Quad View region's coordinates.
+        y = 30.0 * scale
         if shelf_top is not None:
-            y = shelf_top + radius + 12.0 * scale
-        else:
-            y = 30.0 * scale
+            shelf_top_local = shelf_top - region.y
+            if shelf_top_local > 0.0:
+                y = shelf_top_local + radius + 12.0 * scale
 
+        # View Roll is intentionally not part of Quad View.
         buttons = (
             self.frame,
             self.quad,
@@ -1057,7 +1062,6 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
             self.side,
             self.top,
             self.invert,
-            self.roll,
         )
 
         total_buttons = len(buttons)
@@ -1068,6 +1072,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         )
 
         self.maximize.hide = True
+        self.roll.hide = True
 
         for index, gizmo in enumerate(buttons):
             gizmo.matrix_basis = Matrix.Translation(
