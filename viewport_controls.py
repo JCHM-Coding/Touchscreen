@@ -15,6 +15,7 @@ FRONT_ID = "NAVIGATION_FRONT_GT"
 SIDE_ID = "NAVIGATION_SIDE_GT"
 TOP_ID = "NAVIGATION_TOP_GT"
 INVERT_ID = "NAVIGATION_INVERT_GT"
+ROLL_ID = "NAVIGATION_ROLL_GT"
 
 
 # ---------------------------------------------------------
@@ -31,12 +32,22 @@ ICON_SIZE = 22.8
 
 
 def _viewport_scale():
-    """Return the user-selected Viewport Controls scale."""
+    """Scale controls with Blender's UI Resolution Scale and addon 2x option."""
+    scale = 1.0
     try:
-        prefs = bpy.context.preferences.addons[__package__].preferences
-        return 2.0 if getattr(prefs, "viewport_controls_2x", False) else 1.0
+        # Blender's UI scale follows Preferences > System > Resolution Scale.
+        scale = float(getattr(bpy.context.preferences.system, "ui_scale", 1.0))
     except Exception:
-        return 1.0
+        pass
+
+    try:
+        addon_prefs = bpy.context.preferences.addons[__package__].preferences
+        if getattr(addon_prefs, "viewport_controls_2x", False):
+            scale *= 2.0
+    except Exception:
+        pass
+
+    return max(0.5, min(scale, 4.0))
 
 
 # ---------------------------------------------------------
@@ -56,7 +67,7 @@ def draw_lines(points, color=(0.8, 0.8, 0.8, 1.0), width=2.0):
     shader.bind()
     shader.uniform_float("color", color)
 
-    gpu.state.line_width_set(width)
+    gpu.state.line_width_set(width * _viewport_scale())
     batch.draw(shader)
     gpu.state.line_width_set(1.0)
 
@@ -312,6 +323,33 @@ def draw_letter_icon(x, y, letter, size, color):
     )
 
 
+def draw_roll_icon(x, y, size, color):
+    """Small circular arrow representing View Roll."""
+    radius = size * 0.31
+    points = []
+    start_angle = math.radians(35)
+    end_angle = math.radians(325)
+    steps = 28
+    for i in range(steps + 1):
+        angle = start_angle + (end_angle - start_angle) * i / steps
+        points.append((x + math.cos(angle) * radius, y + math.sin(angle) * radius))
+
+    draw_lines(
+        [point for pair in zip(points[:-1], points[1:]) for point in pair],
+        color,
+        2.0,
+    )
+
+    # Arrow head at the end of the arc.
+    tip = points[-1]
+    draw_lines(
+        [tip, (tip[0] - size * 0.23, tip[1] + size * 0.02),
+         tip, (tip[0] - size * 0.04, tip[1] + size * 0.22)],
+        color,
+        2.0,
+    )
+
+
 # ---------------------------------------------------------
 # BASE GIZMO
 # ---------------------------------------------------------
@@ -431,7 +469,7 @@ class NAVIGATION_MAX_GT(NAVIGATION_BaseGizmo):
         draw_maximize_icon(
             x,
             y,
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -469,7 +507,7 @@ class NAVIGATION_FRAME_GT(NAVIGATION_BaseGizmo):
             x,
             y,
             "F",
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -506,7 +544,7 @@ class NAVIGATION_QUAD_GT(NAVIGATION_BaseGizmo):
         draw_quad_icon(
             x,
             y,
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -571,7 +609,7 @@ class NAVIGATION_LOCK_GT(NAVIGATION_BaseGizmo):
         draw_lock_icon(
             x,
             y,
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             color
         )
 
@@ -648,7 +686,7 @@ class NAVIGATION_FRONT_GT(NAVIGATION_AXIS_BaseGizmo):
             x,
             y,
             "Y",
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -689,7 +727,7 @@ class NAVIGATION_SIDE_GT(NAVIGATION_AXIS_BaseGizmo):
             x,
             y,
             "X",
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -730,7 +768,7 @@ class NAVIGATION_TOP_GT(NAVIGATION_AXIS_BaseGizmo):
             x,
             y,
             "Z",
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -788,7 +826,7 @@ class NAVIGATION_INVERT_GT(NAVIGATION_BaseGizmo):
             x,
             y,
             "I",
-            ICON_SIZE,
+            ICON_SIZE * _viewport_scale(),
             self.get_icon_color()
         )
 
@@ -798,6 +836,31 @@ class NAVIGATION_INVERT_GT(NAVIGATION_BaseGizmo):
             self.matrix_world,
             select_id=select_id
         )
+
+
+# ---------------------------------------------------------
+# VIEW ROLL
+# ---------------------------------------------------------
+
+class NAVIGATION_ROLL_GT(NAVIGATION_BaseGizmo):
+
+    bl_idname = ROLL_ID
+
+    def execute_function(self, context):
+        try:
+            # Blender's incremental View Roll step to the left.
+            bpy.ops.view3d.view_roll(type='LEFT')
+        except Exception as e:
+            print("Navigation - View Roll:", e)
+
+    def draw(self, context):
+        self.draw_button_background()
+        x = self.matrix_world[0][3]
+        y = self.matrix_world[1][3]
+        draw_roll_icon(x, y, ICON_SIZE * _viewport_scale(), self.get_icon_color())
+
+    def draw_select(self, context, select_id=0):
+        self.draw_preset_box(self.matrix_world, select_id=select_id)
 
 
 # ---------------------------------------------------------
@@ -855,6 +918,10 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         self.invert = self.gizmos.new(INVERT_ID)
         self.invert.scale_basis = 1.1
         self.invert.use_tooltip = True
+
+        self.roll = self.gizmos.new(ROLL_ID)
+        self.roll.scale_basis = 1.1
+        self.roll.use_tooltip = True
 
     def draw_prepare(self, context):
 
@@ -926,50 +993,53 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
                 ):
                     asset_shelf_open = True
 
-        # Hide all viewport controls whenever the N-panel or Asset Shelf is open.
-        if n_panel_open or asset_shelf_open:
-
-            self.maximize.hide = True
-            self.frame.hide = True
-            self.quad.hide = True
-            self.lock.hide = True
-            self.front.hide = True
-            self.side.hide = True
-            self.top.hide = True
-            self.invert.hide = True
-
-            return
-
+        # Keep the controls in the WINDOW region, but use the actual Sidebar
+        # edge as the horizontal reference when the N-panel is visible.
+        # Asset Shelf uses the viewport's reduced height as its reference.
         scale = _viewport_scale()
         step = 45 * scale
 
+        sidebar_left = None
+        if n_panel_open and context.area:
+            for r in context.area.regions:
+                if r.type == 'UI' and r.width > 1:
+                    try:
+                        sidebar_left = r.x - region.x
+                    except Exception:
+                        sidebar_left = None
+                    break
+
         # =================================================
         # NORMAL / FULL SCREEN VIEW
+
         # =================================================
 
         if not quad_view_active:
 
-            x = width - (30 * scale)
+            margin = 30 * scale
+            x = (sidebar_left - margin) if sidebar_left is not None else (width - margin)
 
-            # Lower position.
-            center_y = height * 0.20
+            if asset_shelf_open:
+                # When the Asset Shelf is open, start around the viewport center
+                # and stack downward instead of rising from the lower-left area.
+                x = width * 0.5
+                first_y = height * 0.5
+                positions_y = (first_y, first_y - step, first_y - step * 2, first_y - step * 3)
+            else:
+                center_y = height * 0.20
+                positions_y = (center_y + step * 1.5, center_y + step * 0.5,
+                               center_y - step * 0.5, center_y - step * 1.5)
 
-            self.maximize.matrix_basis = Matrix.Translation(
-                (x, center_y + step, 0)
-            )
-
-            self.frame.matrix_basis = Matrix.Translation(
-                (x, center_y, 0)
-            )
-
-            self.quad.matrix_basis = Matrix.Translation(
-                (x, center_y - step, 0)
-            )
+            self.maximize.matrix_basis = Matrix.Translation((x, positions_y[0], 0))
+            self.frame.matrix_basis = Matrix.Translation((x, positions_y[1], 0))
+            self.quad.matrix_basis = Matrix.Translation((x, positions_y[2], 0))
+            self.roll.matrix_basis = Matrix.Translation((x, positions_y[3], 0))
 
             # Disable Maximize / Restore Areas while already in full screen.
             self.maximize.hide = bool(is_full_screen)
             self.frame.hide = False
             self.quad.hide = False
+            self.roll.hide = False
 
             self.lock.hide = True
             self.front.hide = True
@@ -985,7 +1055,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
 
         y = 30 * scale
 
-        total_buttons = 8
+        total_buttons = 9
         horizontal_step = 45 * scale
 
         center_x = width * 0.5
@@ -1028,12 +1098,17 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
             (start_x + horizontal_step * 7, y, 0)
         )
 
+        self.roll.matrix_basis = Matrix.Translation(
+            (start_x + horizontal_step * 8, y, 0)
+        )
+
         # No Maximize / Restore Areas button in Quad View.
         # Keep Frame and Quad View exactly as they are.
         self.maximize.hide = True
         self.frame.hide = False
         self.quad.hide = False
         self.lock.hide = False
+        self.roll.hide = False
 
         # -------------------------------------------------
         # Lock Rotation
@@ -1086,6 +1161,7 @@ classes = (
     NAVIGATION_SIDE_GT,
     NAVIGATION_TOP_GT,
     NAVIGATION_INVERT_GT,
+    NAVIGATION_ROLL_GT,
     NAVIGATION_CUSTOM_GGT,
 )
 
