@@ -1048,40 +1048,49 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         # Only the lower panes are raised when the Asset Shelf occupies
         # the bottom of the area.  shelf_top is in WINDOW coordinates,
         # so convert it to this individual Quad View region's coordinates.
-        y = 30.0 * scale
+        # Upper row stays fixed; lower row clears the Asset Shelf.
+        upper_y = 30.0 * scale
+        lower_y = upper_y
+
         if shelf_top is not None:
             shelf_top_local = shelf_top - region.y
             if shelf_top_local > 0.0:
-                # Extra clearance for the floating Asset Shelf tabs.
+                # Same clearance used by Full Screen + Asset Shelf.
                 margin = 40.0 * scale
-                y = shelf_top_local + radius + (2.0 * margin)
+                lower_y = shelf_top_local + radius + (2.0 * margin)
 
         # View Roll is intentionally not part of Quad View.
-        buttons = (
+        upper_buttons = (
             self.frame,
             self.quad,
             self.lock,
+        )
+        lower_buttons = (
             self.front,
             self.side,
             self.top,
             self.invert,
         )
 
-        total_buttons = len(buttons)
         horizontal_step = 45.0 * scale
-        center_x = width * 0.5
-        start_x = center_x - (
-            horizontal_step * (total_buttons - 1) / 2.0
-        )
+
+        def _place_row(buttons, y):
+            total_buttons = len(buttons)
+            center_x = width * 0.5
+            start_x = center_x - (
+                horizontal_step * (total_buttons - 1) / 2.0
+            )
+            for index, gizmo in enumerate(buttons):
+                gizmo.matrix_basis = Matrix.Translation(
+                    (start_x + horizontal_step * index, y, 0)
+                )
+                gizmo.hide = False
 
         self.maximize.hide = True
         self.roll.hide = True
 
-        for index, gizmo in enumerate(buttons):
-            gizmo.matrix_basis = Matrix.Translation(
-                (start_x + horizontal_step * index, y, 0)
-            )
-            gizmo.hide = False
+        _place_row(upper_buttons, upper_y)
+        _place_row(lower_buttons, lower_y)
 
         locked = False
         region_3d = context.region_data
