@@ -1,4 +1,3 @@
-hola, vamos a terminar este script, lo ultimo es, si hay asset shelf en quad view los controles de los dos viewports de abajo pasan arriba, si no se queda como esta:
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
