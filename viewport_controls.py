@@ -1,3 +1,4 @@
+hola, vamos a terminar este script, lo ultimo es, si hay asset shelf en quad view los controles de los dos viewports de abajo pasan arriba, si no se queda como esta:
 import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
@@ -1044,17 +1045,69 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         # QUAD VIEW
         # =================================================
 
-        # Keep the upper two Quad View panes exactly where they were.
-        # Only the lower panes are raised when the Asset Shelf occupies
-        # the bottom of the area.  shelf_top is in WINDOW coordinates,
-        # so convert it to this individual Quad View region's coordinates.
+        # Base position for Quad View controls.
+        # Without an Asset Shelf, all four viewports keep their normal
+        # control position.
         y = 40.0 * scale
-        if shelf_top is not None:
-            shelf_top_local = shelf_top - region.y
-            if shelf_top_local > 0.0:
-                # Extra clearance for the floating Asset Shelf tabs.
-                margin = 40.0 * scale
-                y = shelf_top_local + radius + (2.0 * margin)
+
+        # The Asset Shelf only occupies the bottom part of the Quad View.
+        # Therefore ONLY the two lower Quad View regions must move their
+        # controls above the shelf.  The two upper regions stay exactly
+        # where they are.
+        #
+        # Blender's Quad View regions are laid out in a 2x2 grid.  We can
+        # determine whether the current WINDOW region is a lower pane by
+        # comparing its vertical position with the other Quad View regions.
+        if shelf_top is not None and region_quadviews:
+            try:
+                region_bottom = float(region.y)
+                region_top = region_bottom + float(region.height)
+
+                # Find the vertical split between the upper and lower
+                # Quad View panes.  Quad View regions expose their own
+                # WINDOW-region rectangles through region_quadviews.
+                quad_rects = []
+                for quad_region in region_quadviews:
+                    qy = float(getattr(quad_region, "y", 0.0))
+                    qh = float(getattr(quad_region, "height", 0.0))
+                    if qh > 1.0:
+                        quad_rects.append((qy, qy + qh))
+
+                is_lower_quad = False
+
+                if len(quad_rects) >= 4:
+                    # The two lower panes have the two smallest vertical
+                    # centers.  Use the median of the four centers as the
+                    # horizontal split between upper and lower panes.
+                    centers = sorted(
+                        ((bottom + top) * 0.5 for bottom, top in quad_rects)
+                    )
+                    split_y = (centers[1] + centers[2]) * 0.5
+                    current_center = (region_bottom + region_top) * 0.5
+                    is_lower_quad = current_center < split_y
+
+                if is_lower_quad:
+                    # shelf_top is in WINDOW coordinates, so convert it
+                    # to this individual Quad View region's coordinates.
+                    shelf_top_local = shelf_top - region.y
+
+                    if shelf_top_local > 0.0:
+                        # Extra clearance for the floating Asset Shelf tabs.
+                        margin = 40.0 * scale
+                        y = (
+                            shelf_top_local
+                            + radius
+                            + (2.0 * margin)
+                        )
+
+            except Exception as e:
+                # Never let Quad View detection break the navigation
+                # controls.  If detection fails, keep the original
+                # Quad View position.
+                print(
+                    "Touchscreen - Quad View Asset Shelf detection:",
+                    e
+                )
 
         # View Roll is intentionally not part of Quad View.
         buttons = (
