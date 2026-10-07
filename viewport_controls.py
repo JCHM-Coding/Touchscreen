@@ -25,7 +25,7 @@ ROLL_ID = "NAVIGATION_ROLL_GT"
 # Viewport Controls are intentionally 60% of the original design size.
 # Blender UI Resolution Scale then scales the whole control set coherently.
 BASE_INTERFACE_SCALE = 0.60
-BUTTON_RADIUS = 16.0
+BUTTON_RADIUS = 18.0
 BUTTON_HIT_RADIUS = 24.0
 
 # Doubled circle resolution.
@@ -1009,7 +1009,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
             if shelf_top is not None:
                 # Keep the controls above the Asset Shelf floating tabs.
                 # Use two margins of safety around the shelf edge.
-                margin = 10.0 * scale
+                margin = 40.0 * scale
                 bottom_y = shelf_top + radius + (2.0 * margin)
                 center_y = bottom_y + step * 2.0
             else:
@@ -1053,7 +1053,7 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
             shelf_top_local = shelf_top - region.y
             if shelf_top_local > 0.0:
                 # Extra clearance for the floating Asset Shelf tabs.
-                margin = 14.0 * scale
+                margin = 40.0 * scale
                 y = shelf_top_local + radius + (2.0 * margin)
 
         # View Roll is intentionally not part of Quad View.
