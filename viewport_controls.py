@@ -1007,9 +1007,10 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         if not quad_view_active:
 
             if shelf_top is not None:
-                # Push the lower part of the stack upward so the shelf
-                # never makes the controls drop toward the bottom.
-                bottom_y = shelf_top + radius + 10.0 * scale
+                # Keep the controls above the Asset Shelf floating tabs.
+                # Use two margins of safety around the shelf edge.
+                margin = 10.0 * scale
+                bottom_y = shelf_top + radius + (2.0 * margin)
                 center_y = bottom_y + step * 2.0
             else:
                 center_y = height * 0.20
@@ -1051,7 +1052,9 @@ class NAVIGATION_CUSTOM_GGT(bpy.types.GizmoGroup):
         if shelf_top is not None:
             shelf_top_local = shelf_top - region.y
             if shelf_top_local > 0.0:
-                y = shelf_top_local + radius + 28.0 * scale
+                # Extra clearance for the floating Asset Shelf tabs.
+                margin = 14.0 * scale
+                y = shelf_top_local + radius + (2.0 * margin)
 
         # View Roll is intentionally not part of Quad View.
         buttons = (
