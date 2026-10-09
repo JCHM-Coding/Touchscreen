@@ -28,6 +28,7 @@ _MODULE_NAMES = (
     ("edit_mode", "Edit Mode"),
     ("sculpt_mode", "Sculpt Mode"),
     ("modifiers", "Modifiers"),
+    ("asset_shelf", "Asset Shelf"),
 )
 
 MODULES = []
