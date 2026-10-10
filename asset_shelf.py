@@ -222,6 +222,25 @@ def on_brush_search_update(self, context):
     tag_view3d_redraw()
 
 
+def on_catalog_update(self, context):
+    if context is None:
+        return
+    # Asegurar que al cambiar de catálogo se limpie o seleccione un pincel válido existente
+    try:
+        wm = context.window_manager
+        ensure_assets_loaded(context)
+        assets = get_filtered_assets(context)
+        if assets:
+            first_entry = assets[0]
+            first_ident = "TS_BRUSH_" + hashlib.sha1(favorite_key(first_entry).encode("utf-8")).hexdigest()[:16]
+            wm.ts_brush_choice = first_ident
+        else:
+            wm.ts_brush_choice = "NONE"
+    except Exception:
+        pass
+    tag_view3d_redraw()
+
+
 def find_catalog_file(library_root):
     root = Path(library_root)
     candidates = [
@@ -282,6 +301,8 @@ def rebuild_catalog_enum_items():
 
 
 def catalog_enum_items(self, context):
+    if not CATALOG_ENUM_ITEMS:
+        rebuild_catalog_enum_items()
     return CATALOG_ENUM_ITEMS
 
 
@@ -519,15 +540,21 @@ def brush_choice_items(self, context):
 
         BRUSH_ENUM_ITEMS = items
         BRUSH_ENUM_MAP = mapping
+        
+        if not items:
+            return [("NONE", "No Brushes", "No brushes available in this selection", 'INFO', 0)]
+            
         return BRUSH_ENUM_ITEMS
     except Exception:
-        return []
+        return [("NONE", "Error", "Error loading brushes", 'ERROR', 0)]
 
 
 def on_brush_choice_update(self, context):
     if context is None:
         return
     identifier = getattr(self, "ts_brush_choice", None)
+    if identifier == "NONE" or not identifier:
+        return
     entry = BRUSH_ENUM_MAP.get(identifier)
     if entry is None:
         return
@@ -664,7 +691,7 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
                 for entry in ASSET_CACHE:
                     if normalize_brush_name(entry.get("name", "")) == active_name:
                         ident = "TS_BRUSH_" + hashlib.sha1(favorite_key(entry).encode("utf-8")).hexdigest()[:16]
-                        if wm.ts_brush_choice != ident:
+                        if wm.ts_brush_choice != ident and ident in BRUSH_ENUM_MAP:
                             wm.ts_brush_choice = ident
                         break
 
@@ -689,8 +716,8 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
                 wm,
                 "ts_brush_choice",
                 show_labels=wm.ts_brush_show_names,
-                scale=4.0,       # Controls the thumbnail/button size in the sidebar grid (N-panel)
-                scale_popup=3.0, # Controls the preview size when expanded in the popup menu
+                scale=4.0,
+                scale_popup=2.2,
             )
 
         # Active brush read-only name info below the grid
@@ -745,6 +772,7 @@ def register():
         name="Catalog",
         description="Filter brushes by asset catalog",
         items=catalog_enum_items,
+        update=on_catalog_update,
     )
     bpy.types.WindowManager.ts_brush_search = bpy.props.StringProperty(
         name="Search Brushes",
