@@ -122,6 +122,24 @@ def make_catalog_key(asset_type, library_identifier, catalog_uuid):
     return f"{asset_type}|{library_identifier}|{catalog_uuid}"
 
 
+def get_active_brush(context):
+    try:
+        ts = context.tool_settings
+        if not ts:
+            return None
+        if context.mode == 'SCULPT' and ts.sculpt:
+            return ts.sculpt.brush
+        elif context.mode == 'PAINT_TEXTURE' and ts.image_paint:
+            return ts.image_paint.brush
+        elif context.mode == 'PAINT_VERTEX' and ts.vertex_paint:
+            return ts.vertex_paint.brush
+        elif context.mode == 'PAINT_WEIGHT' and ts.weight_paint:
+            return ts.weight_paint.brush
+    except Exception:
+        pass
+    return None
+
+
 # ============================================================
 # PERSISTENT FAVORITES
 # ============================================================
@@ -638,6 +656,18 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
         ensure_assets_loaded(context)
         load_favorites()
 
+        # Synchronize selection preview with the currently active brush when search is empty
+        if not get_search_text(context):
+            active_brush = get_active_brush(context)
+            if active_brush:
+                active_name = normalize_brush_name(active_brush.name)
+                for entry in ASSET_CACHE:
+                    if normalize_brush_name(entry.get("name", "")) == active_name:
+                        ident = "TS_BRUSH_" + hashlib.sha1(favorite_key(entry).encode("utf-8")).hexdigest()[:16]
+                        if wm.ts_brush_choice != ident:
+                            wm.ts_brush_choice = ident
+                        break
+
         # Row 1: Search filter
         layout.prop(wm, "ts_brush_search", text="", icon='VIEWZOOM')
 
@@ -664,20 +694,9 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
             )
 
         # Active brush read-only name info below the grid
-        ts = context.tool_settings
-        if ts:
-            active_brush = None
-            if context.mode == 'SCULPT' and hasattr(ts, "sculpt") and ts.sculpt:
-                active_brush = ts.sculpt.brush
-            elif context.mode == 'PAINT_TEXTURE' and hasattr(ts, "image_paint") and ts.image_paint:
-                active_brush = ts.image_paint.brush
-            elif context.mode == 'PAINT_VERTEX' and hasattr(ts, "vertex_paint") and ts.vertex_paint:
-                active_brush = ts.vertex_paint.brush
-            elif context.mode == 'PAINT_WEIGHT' and hasattr(ts, "weight_paint") and ts.weight_paint:
-                active_brush = ts.weight_paint.brush
-
-            if active_brush:
-                layout.label(text=f"Active: {active_brush.name}", icon='BRUSH_DATA')
+        active_brush = get_active_brush(context)
+        if active_brush:
+            layout.label(text=f"Active: {active_brush.name}", icon='BRUSH_DATA')
 
         # Favorites management
         entry = get_current_brush_entry(context)
