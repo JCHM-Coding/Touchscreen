@@ -690,7 +690,7 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
                 "ts_brush_choice",
                 show_labels=wm.ts_brush_show_names,
                 scale=4.0,       # Controls the thumbnail/button size in the sidebar grid (N-panel)
-                scale_popup=2.2, # Controls the preview size when expanded in the popup menu
+                scale_popup=3.0, # Controls the preview size when expanded in the popup menu
             )
 
         # Active brush read-only name info below the grid
