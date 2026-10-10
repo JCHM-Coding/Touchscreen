@@ -34,15 +34,11 @@ _MODULE_NAMES = (
 MODULES = []
 
 for _name, _label in _MODULE_NAMES:
-
     _module = importlib.import_module(
         f".{_name}",
         __package__
     )
-
-    MODULES.append(
-        (_name, _label, _module)
-    )
+    MODULES.append((_name, _label, _module))
 
 MODULES = tuple(MODULES)
 
@@ -52,30 +48,20 @@ MODULES = tuple(MODULES)
 # ============================================================
 
 def _set_module(name, enabled):
-
     mod = next(
-        m
-        for k, _l, m in MODULES
-        if k == name
+        m for k, _l, m in MODULES if k == name
     )
 
     try:
-
         if enabled:
             mod.register()
-
         else:
             mod.unregister()
-
     except Exception as e:
-
-        print(
-            f"Touchscreen - {name}: {e}"
-        )
+        print(f"Touchscreen - {name}: {e}")
 
 
 def _u(name):
-
     return lambda self, context: _set_module(
         name,
         getattr(self, name)
@@ -87,7 +73,6 @@ def _u(name):
 # ============================================================
 
 def _update_toolbar_layout(self, context):
-
     toolbar_module = next(
         (
             mod
@@ -101,24 +86,39 @@ def _update_toolbar_layout(self, context):
         return
 
     try:
-
         toolbar_module.update_native_toolbar_layout()
-
     except Exception as e:
+        print(f"Touchscreen - Toolbar Layout: {e}")
 
-        print(
-            f"Touchscreen - Toolbar Layout: {e}"
-        )
+
+# ============================================================
+# ASSET SHELF PREFERENCES UPDATE
+# ============================================================
+
+def _update_asset_shelf_options(self, context):
+    """Redraw relevant editors when Asset Shelf display options change."""
+    try:
+        wm = bpy.context.window_manager
+        if wm is None:
+            return
+
+        for window in wm.windows:
+            screen = window.screen
+            if screen is None:
+                continue
+
+            for area in screen.areas:
+                if area.type in {'VIEW_3D', 'IMAGE_EDITOR'}:
+                    area.tag_redraw()
+    except (AttributeError, ReferenceError, RuntimeError):
+        pass
 
 
 # ============================================================
 # PREFERENCES
 # ============================================================
 
-class TOUCHSCREEN_Preferences(
-    bpy.types.AddonPreferences
-):
-
+class TOUCHSCREEN_Preferences(bpy.types.AddonPreferences):
     bl_idname = __package__
 
     # --------------------------------------------------------
@@ -146,7 +146,7 @@ class TOUCHSCREEN_Preferences(
     viewport_controls_2x: bpy.props.BoolProperty(
         name="Viewport Controls 2x",
         description="Scale the Viewport Controls to 2x size",
-        default=True,
+        default=False,
     )
 
     edit_mode: bpy.props.BoolProperty(
@@ -167,10 +167,39 @@ class TOUCHSCREEN_Preferences(
         update=_u("modifiers")
     )
 
+    asset_shelf: bpy.props.BoolProperty(
+        name="Asset Shelf",
+        description="Enable or disable the Touchscreen Brush Asset Shelf",
+        default=True,
+        update=_u("asset_shelf")
+    )
+
+    # --------------------------------------------------------
+    # EXTRA OPTIONS
+    # --------------------------------------------------------
+
     modifiers_extra_options: bpy.props.BoolProperty(
         name="Modifiers Extra Options",
         description="Show Apply, Remove and viewport visibility controls for modifiers",
         default=False,
+    )
+
+    asset_shelf_scale: bpy.props.FloatProperty(
+        name="Scale",
+        description="Size of brush thumbnails in the Asset Shelf panel",
+        default=4.0,
+        min=1.0,
+        max=10.0,
+        update=_update_asset_shelf_options,
+    )
+
+    asset_shelf_scale_popup: bpy.props.FloatProperty(
+        name="Scale Popup",
+        description="Size of brush thumbnails in the popup",
+        default=2.2,
+        min=1.0,
+        max=10.0,
+        update=_update_asset_shelf_options,
     )
 
     # --------------------------------------------------------
@@ -192,7 +221,7 @@ class TOUCHSCREEN_Preferences(
                 "Use the Touchscreen automatic 1, 2, 3, columns and text layout"
             ),
         ],
-        default="BLENDER",
+        default="4_COLUMNS",
         update=_update_toolbar_layout,
     )
 
@@ -211,7 +240,6 @@ class TOUCHSCREEN_Preferences(
     # --------------------------------------------------------
 
     def draw(self, context):
-
         layout = self.layout
 
         # ----------------------------------------------------
@@ -219,29 +247,17 @@ class TOUCHSCREEN_Preferences(
         # ----------------------------------------------------
 
         box = layout.box()
-
-        box.label(
-            text="Modules"
-        )
+        box.label(text="Modules")
 
         for prop, label, _ in MODULES:
-
-            box.prop(
-                self,
-                prop,
-                text=label
-            )
+            box.prop(self, prop, text=label)
 
         # ----------------------------------------------------
         # EXTRA OPTIONS
         # ----------------------------------------------------
 
         box = layout.box()
-
-        row = box.row(
-            align=True
-        )
-
+        row = box.row(align=True)
         row.prop(
             self,
             "show_extra_options",
@@ -249,63 +265,39 @@ class TOUCHSCREEN_Preferences(
             icon="TRIA_DOWN" if self.show_extra_options else "TRIA_RIGHT",
             emboss=False
         )
-
-        row.label(
-            text="Extra Options"
-        )
+        row.label(text="Extra Options")
 
         if self.show_extra_options:
-
-            # ------------------------------------------------
             # MODIFIERS EXTRA OPTIONS
-            # ------------------------------------------------
-
             box.prop(
                 self,
                 "modifiers_extra_options",
                 text="Modifiers Extra Options"
             )
 
-            # ------------------------------------------------
             # TOOLBAR
-            # ------------------------------------------------
-
             subbox = box.box()
+            subbox.label(text="Toolbar")
+            row = subbox.row(align=True)
+            row.prop(self, "native_toolbar_layout", expand=True)
 
-            subbox.label(
-                text="Toolbar"
-            )
-
-            row = subbox.row(
-                align=True
-            )
-
-            row.prop(
-                self,
-                "native_toolbar_layout",
-                expand=True
-            )
-
-            # ------------------------------------------------
             # VIEWPORT CONTROLS SIZE
-            # ------------------------------------------------
-
             subbox = box.box()
-
-            subbox.label(
-                text="Viewport Controls Size"
-            )
-
-            row = subbox.row(
-                align=True
-            )
-
+            subbox.label(text="Viewport Controls Size")
+            row = subbox.row(align=True)
             row.prop(
                 self,
                 "viewport_controls_2x",
                 text="2x Size",
                 toggle=True
             )
+
+            # ASSET SHELF SIZE
+            subbox = box.box()
+            subbox.label(text="Asset Shelf")
+            col = subbox.column(align=True)
+            col.prop(self, "asset_shelf_scale", text="Scale")
+            col.prop(self, "asset_shelf_scale_popup", text="Scale Popup")
 
 
 # ============================================================
@@ -318,34 +310,17 @@ CLASSES = (
 
 
 def register():
-
     for cls in CLASSES:
+        bpy.utils.register_class(cls)
 
-        bpy.utils.register_class(
-            cls
-        )
-
-    prefs = bpy.context.preferences.addons[
-        __package__
-    ].preferences
+    prefs = bpy.context.preferences.addons[__package__].preferences
 
     for prop, _label, mod in MODULES:
-
-        if getattr(
-            prefs,
-            prop,
-            True
-        ):
-
+        if getattr(prefs, prop, True):
             try:
-
                 mod.register()
-
             except Exception as e:
-
-                print(
-                    f"Touchscreen - {prop}: {e}"
-                )
+                print(f"Touchscreen - {prop}: {e}")
 
 
 # ============================================================
@@ -353,23 +328,14 @@ def register():
 # ============================================================
 
 def unregister():
-
     for _prop, _label, mod in reversed(MODULES):
-
         try:
-
             mod.unregister()
-
         except Exception:
             pass
 
     for cls in reversed(CLASSES):
-
         try:
-
-            bpy.utils.unregister_class(
-                cls
-            )
-
+            bpy.utils.unregister_class(cls)
         except Exception:
             pass

@@ -84,6 +84,28 @@ def normalize_string(value):
     return str(value)
 
 
+def get_asset_shelf_preferences():
+    """Return the parent Touchscreen add-on preferences, if available."""
+    try:
+        addon = bpy.context.preferences.addons.get(__package__)
+        if addon is not None:
+            return addon.preferences
+    except (AttributeError, ReferenceError, RuntimeError):
+        pass
+    return None
+
+
+def get_asset_shelf_scale():
+    """Read thumbnail scales from Touchscreen Preferences."""
+    prefs = get_asset_shelf_preferences()
+    if prefs is None:
+        return 4.0, 2.2
+    try:
+        return float(prefs.asset_shelf_scale), float(prefs.asset_shelf_scale_popup)
+    except (AttributeError, ReferenceError, TypeError, ValueError):
+        return 4.0, 2.2
+
+
 GREASE_PENCIL_MODES = {
     'PAINT_GREASE_PENCIL',
     'SCULPT_GREASE_PENCIL',
@@ -113,7 +135,7 @@ def get_selected_catalog(context):
 
 def get_search_text(context):
     try:
-        return context.window_manager.ts_brush_search.strip().casefold()
+        return context.window_manager.ts_brush_search.strip()
     except (AttributeError, TypeError):
         return ""
 
@@ -225,7 +247,7 @@ def on_brush_search_update(self, context):
 def on_catalog_update(self, context):
     if context is None:
         return
-    # Asegurar que al cambiar de catálogo se limpie o seleccione un pincel válido existente
+    # Ensure that changing catalog selects a valid existing brush when possible.
     try:
         wm = context.window_manager
         ensure_assets_loaded(context)
@@ -540,10 +562,10 @@ def brush_choice_items(self, context):
 
         BRUSH_ENUM_ITEMS = items
         BRUSH_ENUM_MAP = mapping
-        
+
         if not items:
             return [("NONE", "No Brushes", "No brushes available in this selection", 'INFO', 0)]
-            
+
         return BRUSH_ENUM_ITEMS
     except Exception:
         return [("NONE", "Error", "Error loading brushes", 'ERROR', 0)]
@@ -683,7 +705,7 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
         ensure_assets_loaded(context)
         load_favorites()
 
-        # Synchronize selection preview with the currently active brush when search is empty
+        # Synchronize selection preview with the currently active brush when search is empty.
         if not get_search_text(context):
             active_brush = get_active_brush(context)
             if active_brush:
@@ -709,6 +731,7 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
 
         # Icon grid view
         assets = get_filtered_assets(context)
+        shelf_scale, shelf_scale_popup = get_asset_shelf_scale()
         if not assets:
             layout.label(text="No brushes found", icon='INFO')
         else:
@@ -716,8 +739,8 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
                 wm,
                 "ts_brush_choice",
                 show_labels=wm.ts_brush_show_names,
-                scale=4.0,
-                scale_popup=2.2,
+                scale=shelf_scale,
+                scale_popup=shelf_scale_popup,
             )
 
         # Active brush read-only name info below the grid
