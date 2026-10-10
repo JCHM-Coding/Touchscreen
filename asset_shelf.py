@@ -676,12 +676,41 @@ class TS_ASSET_SHELF_MT_specials(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("asset.mark", text="Save as an Asset", icon='ASSET_MANAGER')
-        layout.operator("brush.asset_delete", text="Delete Asset", icon='TRASH')
-        layout.operator("brush.asset_revert", text="Revert", icon='FILE_BACKUP')
-        layout.operator("brush.asset_save", text="Save Changes", icon='FILE_TICK')
-        layout.operator("brush.asset_edit_preview", text="Edit Preview", icon='IMAGE_DATA')
-        layout.operator("brush.asset_edit_metadata", text="Edit Metadata", icon='PREFERENCES')
+        active_brush = get_active_brush(context)
+
+        if active_brush:
+            
+            layout.operator("brush.asset_save_as", text="Duplicate to Asset...", icon='DUPLICATE')
+            
+            if active_brush.asset_data:
+                
+                if getattr(active_brush, "has_unsaved_changes", False):
+                    layout.label(text="* Has Unsaved Changes", icon='ERROR')
+                
+               
+                layout.operator("brush.asset_save", text="Save Changes to Asset", icon='FILE_TICK')
+                
+                
+                layout.operator("brush.asset_revert", text="Revert to Asset", icon='FILE_BACKUP')
+                
+                layout.separator()
+                layout.operator("brush.asset_edit_metadata", text="Edit Metadata", icon='PREFERENCES')
+            else:
+                layout.operator("asset.mark", text="Mark as Scene Asset", icon='ASSET_MANAGER')
+
+            layout.separator()
+            
+            
+            op_delete = layout.operator("brush.asset_delete", text="Delete Asset", icon='TRASH')
+            
+
+            context.window_manager.defer_layout_update()
+            
+            
+            if not active_brush.asset_data:
+                refresh_assets(context)
+        else:
+            layout.label(text="No active brush detected", icon='ERROR')
 
 
 # ============================================================
