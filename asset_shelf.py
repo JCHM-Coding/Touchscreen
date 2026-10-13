@@ -4,6 +4,7 @@ import re
 import json
 import hashlib
 from pathlib import Path
+from bpy.app.handlers import persistent
 
 
 # ============================================================
@@ -21,6 +22,11 @@ BRUSH_ENUM_ITEMS = []
 BRUSH_ENUM_MAP = {}
 FAVORITE_KEYS = set()
 FAVORITES_LOADED = False
+
+# Nombres de brochas que ESTE add-on ha importado desde librerías.
+# Solo estas se consideran "gestionadas" a efectos de limpieza:
+# nunca se tocan las brochas creadas por el usuario.
+LIBRARY_LOADED_BRUSHES = set()
 
 MODE_SETTINGS = {
     'SCULPT': {
@@ -102,7 +108,7 @@ def get_asset_shelf_scale():
         return 4.0, 2.2
     try:
         return float(prefs.asset_shelf_scale), float(prefs.asset_shelf_scale_popup)
-    except (AttributeError, ReferenceError, TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError):
         return 4.0, 2.2
 
 
@@ -116,6 +122,73 @@ GREASE_PENCIL_MODES = {
     'WEIGHT_GPENCIL',
     'VERTEX_GPENCIL',
 }
+
+
+# Catalog terms used to filter custom Grease Pencil libraries by active mode.
+GREASE_PENCIL_MODE_TERMS = {
+    "DRAW_GREASE_PENCIL": ("grease pencil draw", "grease pencil drawing"),
+    "PAINT_GREASE_PENCIL": ("grease pencil draw", "grease pencil drawing"),
+    "VERTEX_GREASE_PENCIL": (
+        "grease pencil paint", "grease pencil vertex paint", "grease pencil vertex"
+    ),
+    "SCULPT_GREASE_PENCIL": ("grease pencil sculpt",),
+    "WEIGHT_GREASE_PENCIL": ("grease pencil weight paint",),
+    "PAINT_GPENCIL": ("grease pencil draw", "grease pencil drawing"),
+    "VERTEX_GPENCIL": (
+        "grease pencil paint", "grease pencil vertex paint", "grease pencil vertex"
+    ),
+    "SCULPT_GPENCIL": ("grease pencil sculpt",),
+    "WEIGHT_GPENCIL": ("grease pencil weight paint",),
+}
+
+
+def normalize_search_text(value):
+    """Normalize catalog labels and paths, including slash-separated categories."""
+    value = normalize_string(value).casefold()
+    value = re.sub(r"[_/\\:.-]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def grease_pencil_entry_matches(entry, context):
+    """Filter GP brushes by the active mode and their Essentials file/catalog."""
+    mode = getattr(context, "mode", "")
+    filename = Path(normalize_string(entry.get("source_file", ""))).name.casefold()
+
+    essentials_mode_files = {
+        "DRAW_GREASE_PENCIL": ("essentials_brushes-gp_draw",),
+        "PAINT_GREASE_PENCIL": ("essentials_brushes-gp_draw",),
+        "VERTEX_GREASE_PENCIL": (
+            "essentials_brushes-gp_vertex_paint", "essentials_brushes-gp_paint"
+        ),
+        "SCULPT_GREASE_PENCIL": ("essentials_brushes-gp_sculpt",),
+        "WEIGHT_GREASE_PENCIL": ("essentials_brushes-gp_weight_paint",),
+        "PAINT_GPENCIL": ("essentials_brushes-gp_draw",),
+        "VERTEX_GPENCIL": (
+            "essentials_brushes-gp_vertex_paint", "essentials_brushes-gp_paint"
+        ),
+        "SCULPT_GPENCIL": ("essentials_brushes-gp_sculpt",),
+        "WEIGHT_GPENCIL": ("essentials_brushes-gp_weight_paint",),
+    }
+
+    if entry.get("asset_type") == "ESSENTIALS" and filename:
+        expected = essentials_mode_files.get(mode, ())
+        all_known = tuple(stem for stems in essentials_mode_files.values() for stem in stems)
+        if any(filename.startswith(stem) for stem in expected):
+            return True
+        if any(filename.startswith(stem) for stem in all_known):
+            return False
+
+    terms = GREASE_PENCIL_MODE_TERMS.get(mode, ())
+    if not terms:
+        return False
+
+    catalog_info = CATALOG_ITEMS.get(entry.get("catalog_key", ""), {})
+    searchable = normalize_search_text(" ".join((
+        normalize_string(catalog_info.get("name", "")),
+        normalize_string(catalog_info.get("simple_name", "")),
+        normalize_string(catalog_info.get("path", "")),
+    )))
+    return any(term in searchable for term in terms)
 
 
 def get_mode_info(context):
@@ -145,19 +218,41 @@ def make_catalog_key(asset_type, library_identifier, catalog_uuid):
 
 
 def get_active_brush(context):
+    """Return the active brush for regular paint and Grease Pencil modes."""
     try:
         ts = context.tool_settings
         if not ts:
             return None
-        if context.mode == 'SCULPT' and ts.sculpt:
-            return ts.sculpt.brush
-        elif context.mode == 'PAINT_TEXTURE' and ts.image_paint:
-            return ts.image_paint.brush
-        elif context.mode == 'PAINT_VERTEX' and ts.vertex_paint:
-            return ts.vertex_paint.brush
-        elif context.mode == 'PAINT_WEIGHT' and ts.weight_paint:
-            return ts.weight_paint.brush
-    except Exception:
+
+        mode = getattr(context, "mode", "")
+        regular_settings = {
+            "SCULPT": "sculpt",
+            "PAINT_TEXTURE": "image_paint",
+            "PAINT_VERTEX": "vertex_paint",
+            "PAINT_WEIGHT": "weight_paint",
+        }
+        settings_name = regular_settings.get(mode)
+        if settings_name:
+            settings = getattr(ts, settings_name, None)
+            return getattr(settings, "brush", None) if settings else None
+
+        gp_settings_by_mode = {
+            "DRAW_GREASE_PENCIL": ("gpencil_paint", "gpencil_draw"),
+            "PAINT_GREASE_PENCIL": ("gpencil_paint", "gpencil_draw"),
+            "VERTEX_GREASE_PENCIL": ("gpencil_vertex_paint", "gpencil_paint"),
+            "SCULPT_GREASE_PENCIL": ("gpencil_sculpt_paint", "gpencil_sculpt"),
+            "WEIGHT_GREASE_PENCIL": ("gpencil_weight_paint",),
+            "PAINT_GPENCIL": ("gpencil_paint",),
+            "VERTEX_GPENCIL": ("gpencil_vertex_paint", "gpencil_paint"),
+            "SCULPT_GPENCIL": ("gpencil_sculpt_paint", "gpencil_sculpt"),
+            "WEIGHT_GPENCIL": ("gpencil_weight_paint",),
+        }
+        for candidate in gp_settings_by_mode.get(mode, ()):
+            settings = getattr(ts, candidate, None)
+            brush = getattr(settings, "brush", None) if settings else None
+            if brush is not None:
+                return brush
+    except (AttributeError, ReferenceError, RuntimeError, TypeError):
         pass
     return None
 
@@ -247,7 +342,6 @@ def on_brush_search_update(self, context):
 def on_catalog_update(self, context):
     if context is None:
         return
-    # Ensure that changing catalog selects a valid existing brush when possible.
     try:
         wm = context.window_manager
         ensure_assets_loaded(context)
@@ -263,50 +357,51 @@ def on_catalog_update(self, context):
     tag_view3d_redraw()
 
 
-def find_catalog_file(library_root):
-    root = Path(library_root)
-    candidates = [
-        root / "blender_assets.cats.txt",
-        root / "brushes" / "blender_assets.cats.txt",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
-
-
 def read_catalogs(library_root, asset_type, library_identifier, library_label):
     catalog_map = {}
-    catalog_file = find_catalog_file(library_root)
-    if catalog_file is None:
+    root = Path(library_root)
+    if not root.is_dir():
         return catalog_map
 
     try:
-        with catalog_file.open("r", encoding="utf-8-sig") as file:
-            for raw_line in file:
-                line = raw_line.strip()
-                if not line or line.startswith("#") or line.upper().startswith("VERSION"):
-                    continue
-                parts = line.split(":", 2)
-                if len(parts) != 3:
-                    continue
-                catalog_uuid, catalog_path, simple_name = (p.strip() for p in parts)
-                if not catalog_uuid:
-                    continue
-                catalog_path = catalog_path.strip("/")
-                display_name = catalog_path.replace("/", " / ") if catalog_path else simple_name or catalog_uuid
-                key = make_catalog_key(asset_type, library_identifier, catalog_uuid)
-                catalog_map[str(catalog_uuid)] = key
-                CATALOG_ITEMS[key] = {
-                    "name": str(display_name),
-                    "path": str(catalog_path),
-                    "uuid": str(catalog_uuid),
-                    "library": str(library_label),
-                    "asset_type": str(asset_type),
-                    "library_identifier": str(library_identifier),
-                }
-    except (OSError, UnicodeError):
-        pass
+        catalog_files = sorted(root.rglob("blender_assets.cats.txt"))
+    except OSError:
+        catalog_files = []
+
+    for catalog_file in catalog_files:
+        try:
+            with catalog_file.open("r", encoding="utf-8-sig") as file:
+                for raw_line in file:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or line.upper().startswith("VERSION"):
+                        continue
+                    parts = line.split(":", 2)
+                    if len(parts) != 3:
+                        continue
+
+                    catalog_uuid, catalog_path, simple_name = (p.strip() for p in parts)
+                    if not catalog_uuid:
+                        continue
+
+                    catalog_path = catalog_path.strip("/")
+                    display_name = (
+                        catalog_path.replace("/", " / ")
+                        if catalog_path else simple_name or catalog_uuid
+                    )
+                    key = make_catalog_key(asset_type, library_identifier, catalog_uuid)
+                    catalog_map[str(catalog_uuid)] = key
+                    CATALOG_ITEMS[key] = {
+                        "name": str(display_name),
+                        "simple_name": str(simple_name),
+                        "path": str(catalog_path),
+                        "uuid": str(catalog_uuid),
+                        "library": str(library_label),
+                        "asset_type": str(asset_type),
+                        "library_identifier": str(library_identifier),
+                    }
+        except (OSError, UnicodeError):
+            continue
+
     return catalog_map
 
 
@@ -362,6 +457,60 @@ def add_entry(entries, entry):
     entries.append(safe_entry)
 
 
+def cleanup_library_brush_duplicates(context):
+    """Elimina SOLO copias sufragadas (.001, .002...) de brochas que este
+    add-on importó desde librerías. Las brochas del usuario nunca se tocan."""
+    active_brush = get_active_brush(context)
+    kept_by_base_name = {}
+
+    for brush in list(bpy.data.brushes):
+        try:
+            raw_name = brush.name
+            base_name = re.sub(r'\.\d{3}$', '', raw_name)
+
+            # Solo gestionamos brochas importadas por este add-on.
+            if base_name not in LIBRARY_LOADED_BRUSHES and raw_name not in LIBRARY_LOADED_BRUSHES:
+                continue
+
+            if brush == active_brush:
+                # La brocha activa siempre gana: se queda ella.
+                loser = kept_by_base_name.pop(base_name, None)
+                kept_by_base_name[base_name] = brush
+                if loser is not None and loser != brush:
+                    try:
+                        bpy.data.brushes.remove(loser, do_unlink=True)
+                    except Exception:
+                        pass
+                continue
+
+            if base_name in kept_by_base_name:
+                keeper = kept_by_base_name[base_name]
+                # Prioriza la que ya es un asset (metadatos intactos).
+                keeper_is_asset = False
+                try:
+                    keeper_is_asset = keeper.asset_data is not None
+                except (ReferenceError, RuntimeError):
+                    pass
+                brush_is_asset = False
+                try:
+                    brush_is_asset = brush.asset_data is not None
+                except (ReferenceError, RuntimeError):
+                    pass
+                remove_me = brush
+                if brush_is_asset and not keeper_is_asset:
+                    remove_me = keeper
+                    kept_by_base_name[base_name] = brush
+                if remove_me is not None:
+                    try:
+                        bpy.data.brushes.remove(remove_me, do_unlink=True)
+                    except Exception:
+                        pass
+            else:
+                kept_by_base_name[base_name] = brush
+        except (ReferenceError, RuntimeError):
+            pass
+
+
 def scan_blend_file(entries, blend_file, library_root, asset_type, library_identifier, library_label, catalog_map, context):
     blend_file = Path(blend_file)
     library_root = Path(library_root)
@@ -369,27 +518,58 @@ def scan_blend_file(entries, blend_file, library_root, asset_type, library_ident
         return
 
     try:
-        with bpy.data.libraries.load(str(blend_file), assets_only=True) as (data_from, _):
-            source_names = [normalize_brush_name(item) for item in list(data_from.brushes)]
-        source_names = [name for name in source_names if name]
-        if not source_names:
-            return
-
         with bpy.data.libraries.load(str(blend_file), assets_only=True) as (data_from, data_to):
-            available_names = {normalize_brush_name(item) for item in list(data_from.brushes)}
-            requested_names = [name for name in source_names if name in available_names]
-            data_to.brushes = list(requested_names)
+            source_names = [normalize_brush_name(item) for item in list(data_from.brushes)]
+            source_names = [name for name in source_names if name]
+            if not source_names:
+                return
 
-        loaded_brushes = list(data_to.brushes or [])
+            # Solo importamos lo que aún no existe con el nombre exacto.
+            # Esto evita que Blender cree copias ".001" en cada refresh.
+            brushes_to_load = [name for name in source_names if bpy.data.brushes.get(name) is None]
+            if brushes_to_load:
+                data_to.brushes = brushes_to_load
+
         relative_blend_path = os.path.relpath(str(blend_file), str(library_root)).replace("\\", "/")
+        active_brush = get_active_brush(context)
 
-        for original_name, brush in zip(requested_names, loaded_brushes):
+        for original_name in source_names:
+            brush = bpy.data.brushes.get(original_name)
+            # Fallback: recuperar una copia sufragada si la original ya no existe.
+            if brush is None:
+                brush = next((b for b in bpy.data.brushes if b.name == original_name or b.name.startswith(original_name + ".")), None)
+
             if brush is None:
                 continue
-            original_name = normalize_brush_name(original_name)
+
+            # Registrarla como gestionada (para la limpieza de duplicados).
+            base_name = re.sub(r'\.\d{3}$', '', brush.name)
+            LIBRARY_LOADED_BRUSHES.add(original_name)
+            LIBRARY_LOADED_BRUSHES.add(base_name)
+
             try:
+                if hasattr(brush, "preview") and brush.preview:
+                    _ = brush.preview.icon_id
+
+                is_currently_active = (active_brush == brush)
+                relative_identifier = f"{relative_blend_path}/Brush/{original_name}"
+                temp_entry = {
+                    "name": original_name,
+                    "asset_type": asset_type,
+                    "asset_identifier": library_identifier,
+                    "relative_identifier": relative_identifier,
+                    "library_label": library_label,
+                    "source_file": str(blend_file),
+                    "catalog_uuid": "",
+                    "catalog_key": "",
+                }
+
                 if not brush_supports_mode(brush, context):
+                    # FIX: no se elimina la brocha. Eliminarla aquí provocaba
+                    # que el siguiente refresh la re-importara (y Blender creara
+                    # ".001", ".002"...). Simplemente no se lista en este modo.
                     continue
+
                 catalog_uuid = ""
                 try:
                     if brush.asset_data is not None:
@@ -398,30 +578,33 @@ def scan_blend_file(entries, blend_file, library_root, asset_type, library_ident
                     pass
 
                 catalog_key = catalog_map.get(catalog_uuid, "")
-                relative_identifier = f"{relative_blend_path}/Brush/{original_name}"
-                add_entry(entries, {
-                    "name": original_name,
-                    "asset_type": asset_type,
-                    "asset_identifier": library_identifier,
-                    "relative_identifier": relative_identifier,
-                    "library_label": library_label,
-                    "source_file": str(blend_file),
-                    "catalog_uuid": catalog_uuid,
-                    "catalog_key": catalog_key,
-                })
+                temp_entry["catalog_uuid"] = catalog_uuid
+                temp_entry["catalog_key"] = catalog_key
+
+                add_entry(entries, temp_entry)
+
             except (ReferenceError, RuntimeError, TypeError):
                 pass
     except Exception:
         pass
 
 
-def scan_local_brushes(entries, context):
+def scan_local_brushes(entries, context, local_catalog_map=None):
     for brush in bpy.data.brushes:
         try:
             if brush.asset_data is None or not brush_supports_mode(brush, context):
                 continue
             name = normalize_brush_name(brush)
+            # FIX: las brochas importadas por este add-on desde librerías
+            # ya aparecen listadas con su librería de origen; si también
+            # se listaran como "Current File" se verían duplicadas en el panel.
+            base_name = re.sub(r'\.\d{3}$', '', name)
+            if name in LIBRARY_LOADED_BRUSHES or base_name in LIBRARY_LOADED_BRUSHES:
+                continue
+            if hasattr(brush, "preview") and brush.preview:
+                _ = brush.preview.icon_id
             catalog_uuid = normalize_string(brush.asset_data.catalog_id)
+            catalog_key = (local_catalog_map or {}).get(catalog_uuid, "")
             add_entry(entries, {
                 "name": name,
                 "asset_type": "LOCAL",
@@ -430,7 +613,7 @@ def scan_local_brushes(entries, context):
                 "library_label": "Current File",
                 "source_file": "",
                 "catalog_uuid": catalog_uuid,
-                "catalog_key": "",
+                "catalog_key": catalog_key,
             })
         except (ReferenceError, RuntimeError, TypeError):
             continue
@@ -473,27 +656,90 @@ def scan_essentials(entries, context):
         scan_blend_file(entries, blend_file, library_root, "ESSENTIALS", "", "Blender Essentials", catalog_map, context)
 
 
+def get_context_cache_key(context):
+    try:
+        obj = context.active_object
+        object_type = obj.type if obj else "NO_OBJECT"
+    except (AttributeError, ReferenceError, RuntimeError):
+        object_type = "NO_OBJECT"
+    return (
+        str(getattr(context, "mode", "UNKNOWN")),
+        object_type,
+        bool(is_grease_pencil_mode(context)),
+    )
+
+
+def invalidate_asset_cache():
+    global ASSETS_LOADED, CACHE_MODE
+    ASSETS_LOADED = False
+    CACHE_MODE = None
+    tag_view3d_redraw()
+
+
+@persistent
+def ts_asset_shelf_load_post(_dummy):
+    try:
+        register()
+    except Exception as exc:
+        print("[Touchscreen Brush Asset Shelf] Could not restore after file load:", exc)
+        try:
+            invalidate_asset_cache()
+        except Exception:
+            pass
+
+
 def refresh_assets(context):
     global ASSET_CACHE, CATALOG_ITEMS, CACHE_MODE, ASSETS_LOADED
     ASSET_CACHE = []
     CATALOG_ITEMS = {}
     ASSETS_LOADED = False
 
-    scan_local_brushes(ASSET_CACHE, context)
+    # Limpiar solo duplicados de brochas gestionadas (importadas por el addon).
+    cleanup_library_brush_duplicates(context)
+
+    try:
+        datafiles = Path(bpy.utils.system_resource("DATAFILES"))
+        local_catalog_map = read_catalogs(
+            datafiles / "assets", "ESSENTIALS", "", "Blender Essentials"
+        )
+    except Exception:
+        local_catalog_map = {}
+
+    scan_local_brushes(ASSET_CACHE, context, local_catalog_map)
     scan_custom_libraries(ASSET_CACHE, context)
     scan_essentials(ASSET_CACHE, context)
+
+    if is_grease_pencil_mode(context):
+        ASSET_CACHE = [
+            entry for entry in ASSET_CACHE
+            if grease_pencil_entry_matches(entry, context)
+        ]
+
+    # Deduplicar entradas en el caché global por identidad absoluta y nombre normalizado
+    unique_assets = []
+    seen_identities = set()
+    seen_names = set()
+    for entry in ASSET_CACHE:
+        identity = (entry["asset_type"], entry["asset_identifier"], entry["relative_identifier"])
+        name_key = (entry["asset_type"], entry["name"].casefold())
+        if identity not in seen_identities and name_key not in seen_names:
+            seen_identities.add(identity)
+            seen_names.add(name_key)
+            unique_assets.append(entry)
+    ASSET_CACHE = unique_assets
 
     used_keys = {entry["catalog_key"] for entry in ASSET_CACHE if entry["catalog_key"]}
     CATALOG_ITEMS = {k: v for k, v in CATALOG_ITEMS.items() if k in used_keys}
     ASSET_CACHE.sort(key=lambda entry: (entry["library_label"].casefold(), entry["name"].casefold()))
-    CACHE_MODE = str(context.mode)
+    CACHE_MODE = get_context_cache_key(context)
     ASSETS_LOADED = True
     rebuild_catalog_enum_items()
     tag_view3d_redraw()
 
 
 def ensure_assets_loaded(context):
-    if not ASSETS_LOADED or CACHE_MODE != context.mode:
+    current_key = get_context_cache_key(context)
+    if not ASSETS_LOADED or CACHE_MODE != current_key:
         refresh_assets(context)
 
 
@@ -624,13 +870,18 @@ class TS_ASSET_SHELF_OT_activate_brush(bpy.types.Operator):
         return {'CANCELLED'}
 
 
-class TS_ASSET_SHELF_OT_refresh(bpy.types.Operator):
-    bl_idname = "ts_asset_shelf.refresh"
-    bl_label = "Refresh Brushes"
+class TS_ASSET_SHELF_OT_refresh_libraries(bpy.types.Operator):
+    bl_idname = "ts_asset_shelf.refresh_libraries"
+    bl_label = "Refresh Libraries"
+    bl_description = "Reread assets and catalogs from libraries"
     bl_options = {'INTERNAL'}
+
+    use_remote_listing: bpy.props.BoolProperty(default=False)
+    use_shift_for_remote_listing: bpy.props.BoolProperty(default=False)
 
     def execute(self, context):
         refresh_assets(context)
+        self.report({'INFO'}, "Asset libraries refreshed")
         return {'FINISHED'}
 
 
@@ -679,34 +930,25 @@ class TS_ASSET_SHELF_MT_specials(bpy.types.Menu):
         active_brush = get_active_brush(context)
 
         if active_brush:
-            
             layout.operator("brush.asset_save_as", text="Duplicate to Asset...", icon='DUPLICATE')
-            
+
             if active_brush.asset_data:
-                
                 if getattr(active_brush, "has_unsaved_changes", False):
                     layout.label(text="* Has Unsaved Changes", icon='ERROR')
-                
-               
+
                 layout.operator("brush.asset_save", text="Save Changes to Asset", icon='FILE_TICK')
-                
-                
                 layout.operator("brush.asset_revert", text="Revert to Asset", icon='FILE_BACKUP')
-                
+
                 layout.separator()
                 layout.operator("brush.asset_edit_metadata", text="Edit Metadata", icon='PREFERENCES')
             else:
                 layout.operator("asset.mark", text="Mark as Scene Asset", icon='ASSET_MANAGER')
 
             layout.separator()
-            
-            
-            op_delete = layout.operator("brush.asset_delete", text="Delete Asset", icon='TRASH')
-            
+            layout.operator("brush.asset_delete", text="Delete Asset", icon='TRASH')
 
             context.window_manager.defer_layout_update()
-            
-            
+
             if not active_brush.asset_data:
                 refresh_assets(context)
         else:
@@ -734,7 +976,6 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
         ensure_assets_loaded(context)
         load_favorites()
 
-        # Synchronize selection preview with the currently active brush when search is empty.
         if not get_search_text(context):
             active_brush = get_active_brush(context)
             if active_brush:
@@ -752,10 +993,14 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
         # Row 2: Catalog selector
         layout.prop(wm, "ts_brush_catalog", text="", icon='DOWNARROW_HLT')
 
-        # Row 3: Names toggle, Refresh, and Brush Specials menu
+        # Row 3: Names toggle, Refresh Libraries operator, and Brush Specials menu
         row3 = layout.row(align=True)
         row3.prop(wm, "ts_brush_show_names", text="Names", icon='FONT_DATA', toggle=True)
-        row3.operator("ts_asset_shelf.refresh", text="", icon='FILE_REFRESH')
+
+        op_refresh = row3.operator("ts_asset_shelf.refresh_libraries", text="", icon='FILE_REFRESH')
+        op_refresh.use_remote_listing = False
+        op_refresh.use_shift_for_remote_listing = False
+
         row3.menu("TS_ASSET_SHELF_MT_specials", text="", icon='DOWNARROW_HLT')
 
         # Icon grid view
@@ -772,12 +1017,10 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
                 scale_popup=shelf_scale_popup,
             )
 
-        # Active brush read-only name info below the grid
         active_brush = get_active_brush(context)
         if active_brush:
             layout.label(text=f"Active: {active_brush.name}", icon='BRUSH_DATA')
 
-        # Favorites management
         entry = get_current_brush_entry(context)
         if entry is not None:
             favorite_row = layout.row(align=True)
@@ -795,7 +1038,7 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
 
 CLASSES = (
     TS_ASSET_SHELF_OT_activate_brush,
-    TS_ASSET_SHELF_OT_refresh,
+    TS_ASSET_SHELF_OT_refresh_libraries,
     TS_ASSET_SHELF_OT_add_favorite,
     TS_ASSET_SHELF_OT_remove_favorite,
     TS_ASSET_SHELF_MT_specials,
@@ -804,6 +1047,10 @@ CLASSES = (
 
 
 def unregister():
+    handlers = bpy.app.handlers.load_post
+    if ts_asset_shelf_load_post in handlers:
+        handlers.remove(ts_asset_shelf_load_post)
+
     for prop_name in ("ts_brush_catalog", "ts_brush_search", "ts_brush_show_names", "ts_brush_choice"):
         if hasattr(bpy.types.WindowManager, prop_name):
             delattr(bpy.types.WindowManager, prop_name)
@@ -813,6 +1060,11 @@ def unregister():
             bpy.utils.unregister_class(cls)
         except (RuntimeError, ValueError):
             pass
+
+    # Nota: no se eliminan las brochas importadas aquí. Ya están en el
+    # archivo del usuario (bpy.data.brushes) y borrarlas al desactivar el
+    # addon destruiría trabajo del usuario. Solo se olvidan como gestionadas.
+    LIBRARY_LOADED_BRUSHES.clear()
 
 
 def register():
@@ -854,6 +1106,12 @@ def register():
             return
 
     load_favorites()
+
+    handlers = bpy.app.handlers.load_post
+    if ts_asset_shelf_load_post not in handlers:
+        handlers.append(ts_asset_shelf_load_post)
+
+    invalidate_asset_cache()
 
 
 if __name__ == "__main__":
