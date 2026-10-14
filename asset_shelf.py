@@ -154,20 +154,18 @@ def grease_pencil_entry_matches(entry, context):
     mode = getattr(context, "mode", "")
     filename = Path(normalize_string(entry.get("source_file", ""))).name.casefold()
 
+    # FIX: nombres reales de los ficheros Essentials de Grease Pencil
+    # (gp_draw, gp_sculpt, gp_vertex, gp_weight — no *_paint).
     essentials_mode_files = {
         "DRAW_GREASE_PENCIL": ("essentials_brushes-gp_draw",),
         "PAINT_GREASE_PENCIL": ("essentials_brushes-gp_draw",),
-        "VERTEX_GREASE_PENCIL": (
-            "essentials_brushes-gp_vertex_paint", "essentials_brushes-gp_paint"
-        ),
+        "VERTEX_GREASE_PENCIL": ("essentials_brushes-gp_vertex",),
         "SCULPT_GREASE_PENCIL": ("essentials_brushes-gp_sculpt",),
-        "WEIGHT_GREASE_PENCIL": ("essentials_brushes-gp_weight_paint",),
+        "WEIGHT_GREASE_PENCIL": ("essentials_brushes-gp_weight",),
         "PAINT_GPENCIL": ("essentials_brushes-gp_draw",),
-        "VERTEX_GPENCIL": (
-            "essentials_brushes-gp_vertex_paint", "essentials_brushes-gp_paint"
-        ),
+        "VERTEX_GPENCIL": ("essentials_brushes-gp_vertex",),
         "SCULPT_GPENCIL": ("essentials_brushes-gp_sculpt",),
-        "WEIGHT_GPENCIL": ("essentials_brushes-gp_weight_paint",),
+        "WEIGHT_GPENCIL": ("essentials_brushes-gp_weight",),
     }
 
     if entry.get("asset_type") == "ESSENTIALS" and filename:
@@ -511,6 +509,31 @@ def cleanup_library_brush_duplicates(context):
             pass
 
 
+def essentials_file_supports_mode(context):
+    """FIX: en Essentials, el modo se deduce del nombre del fichero .blend
+    (mesh_sculpt, mesh_texture, mesh_vertex, mesh_weight), porque varias
+    brochas comparten nombre entre ficheros y bpy.data.brushes solo guarda
+    una copia: comprobar los flags de la brocha cargada puede usar la del
+    fichero equivocado y filtrar brochas legítimas."""
+    mode = getattr(context, "mode", "")
+    stems = {
+        "SCULPT": ("essentials_brushes-mesh_sculpt",),
+        "PAINT_TEXTURE": ("essentials_brushes-mesh_texture",),
+        "PAINT_VERTEX": ("essentials_brushes-mesh_vertex",),
+        "PAINT_WEIGHT": ("essentials_brushes-mesh_weight",),
+        "DRAW_GREASE_PENCIL": ("essentials_brushes-gp_draw",),
+        "PAINT_GREASE_PENCIL": ("essentials_brushes-gp_draw",),
+        "VERTEX_GREASE_PENCIL": ("essentials_brushes-gp_vertex",),
+        "SCULPT_GREASE_PENCIL": ("essentials_brushes-gp_sculpt",),
+        "WEIGHT_GREASE_PENCIL": ("essentials_brushes-gp_weight",),
+        "PAINT_GPENCIL": ("essentials_brushes-gp_draw",),
+        "VERTEX_GPENCIL": ("essentials_brushes-gp_vertex",),
+        "SCULPT_GPENCIL": ("essentials_brushes-gp_sculpt",),
+        "WEIGHT_GPENCIL": ("essentials_brushes-gp_weight",),
+    }
+    return stems.get(mode, ())
+
+
 def scan_blend_file(entries, blend_file, library_root, asset_type, library_identifier, library_label, catalog_map, context):
     blend_file = Path(blend_file)
     library_root = Path(library_root)
@@ -551,7 +574,6 @@ def scan_blend_file(entries, blend_file, library_root, asset_type, library_ident
                 if hasattr(brush, "preview") and brush.preview:
                     _ = brush.preview.icon_id
 
-                is_currently_active = (active_brush == brush)
                 relative_identifier = f"{relative_blend_path}/Brush/{original_name}"
                 temp_entry = {
                     "name": original_name,
@@ -564,10 +586,21 @@ def scan_blend_file(entries, blend_file, library_root, asset_type, library_ident
                     "catalog_key": "",
                 }
 
-                if not brush_supports_mode(brush, context):
-                    # FIX: no se elimina la brocha. Eliminarla aquí provocaba
-                    # que el siguiente refresh la re-importara (y Blender creara
-                    # ".001", ".002"...). Simplemente no se lista en este modo.
+                # FIX: en Essentials el modo se decide SOLO por el fichero
+                # de origen. Nunca se consultan los flags de la brocha cargada:
+                # como curve_sculpt y gp_* se escanean antes (orden alfabético),
+                # los homónimos ("Smooth", "Airbrush"...) ya están ocupados por
+                # brochas de otro fichero y sus flags dan respuestas equivocadas
+                # (hacían aparecer librerías GP/curve en modos mesh y ocultar
+                # brochas legítimas).
+                if asset_type == "ESSENTIALS":
+                    filename_stem = Path(str(blend_file)).stem.casefold()
+                    mode_stems = tuple(s.casefold() for s in essentials_file_supports_mode(context))
+                    if mode_stems and filename_stem not in mode_stems:
+                        continue
+                elif not brush_supports_mode(brush, context):
+                    # Librerías CUSTOM: fuera del filtro, no se lista
+                    # (y no se elimina, para no re-importarla con sufijo .001).
                     continue
 
                 catalog_uuid = ""
@@ -715,16 +748,16 @@ def refresh_assets(context):
             if grease_pencil_entry_matches(entry, context)
         ]
 
-    # Deduplicar entradas en el caché global por identidad absoluta y nombre normalizado
+    # Deduplicar entradas por identidad absoluta (librería + fichero + brocha).
+    # FIX: ya NO se deduplica por nombre — brochas legítimas con el mismo nombre
+    # en distintos ficheros Essentials (Blur, Smear, Paint...) se eliminaban
+    # entre sí y desaparecían del panel.
     unique_assets = []
     seen_identities = set()
-    seen_names = set()
     for entry in ASSET_CACHE:
         identity = (entry["asset_type"], entry["asset_identifier"], entry["relative_identifier"])
-        name_key = (entry["asset_type"], entry["name"].casefold())
-        if identity not in seen_identities and name_key not in seen_names:
+        if identity not in seen_identities:
             seen_identities.add(identity)
-            seen_names.add(name_key)
             unique_assets.append(entry)
     ASSET_CACHE = unique_assets
 
