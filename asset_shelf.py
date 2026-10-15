@@ -193,6 +193,20 @@ def get_mode_info(context):
     return MODE_SETTINGS.get(context.mode)
 
 
+# Etiquetas legibles para los ficheros de Essentials (usadas como catálogos).
+ESSENTIALS_FILE_LABELS = {
+    "essentials_brushes-mesh_sculpt": "Mesh Sculpt",
+    "essentials_brushes-mesh_texture": "Texture Paint",
+    "essentials_brushes-mesh_vertex": "Vertex Paint",
+    "essentials_brushes-mesh_weight": "Weight Paint",
+    "essentials_brushes-curve_sculpt": "Curves Sculpt",
+    "essentials_brushes-gp_draw": "Grease Pencil Draw",
+    "essentials_brushes-gp_sculpt": "Grease Pencil Sculpt",
+    "essentials_brushes-gp_vertex": "Grease Pencil Vertex Paint",
+    "essentials_brushes-gp_weight": "Grease Pencil Weight Paint",
+}
+
+
 def is_grease_pencil_mode(context):
     return bool(context and context.mode in GREASE_PENCIL_MODES)
 
@@ -603,16 +617,39 @@ def scan_blend_file(entries, blend_file, library_root, asset_type, library_ident
                     # (y no se elimina, para no re-importarla con sufijo .001).
                     continue
 
-                catalog_uuid = ""
-                try:
-                    if brush.asset_data is not None:
-                        catalog_uuid = normalize_string(brush.asset_data.catalog_id)
-                except (AttributeError, ReferenceError, RuntimeError):
-                    pass
+                if asset_type == "ESSENTIALS":
+                    # FIX: no se usa el catálogo de brush.asset_data — con
+                    # homónimos ("Smooth", "Density"...) se lee el de la brocha
+                    # equivocada y brochas de mesh heredaban catálogos de Curves
+                    # o GP, haciendo aparecer librerías que no corresponden en
+                    # el selector. Cada fichero de Essentials ES su catálogo,
+                    # ligado al modo, así el selector solo muestra lo del modo.
+                    file_stem = Path(str(blend_file)).stem
+                    pseudo_uuid = "essentials_" + file_stem
+                    catalog_key = make_catalog_key("ESSENTIALS", "", pseudo_uuid)
+                    if catalog_key not in CATALOG_ITEMS:
+                        CATALOG_ITEMS[catalog_key] = {
+                            "name": ESSENTIALS_FILE_LABELS.get(file_stem, file_stem),
+                            "simple_name": file_stem,
+                            "path": file_stem,
+                            "uuid": pseudo_uuid,
+                            "library": "Blender Essentials",
+                            "asset_type": "ESSENTIALS",
+                            "library_identifier": "",
+                        }
+                    temp_entry["catalog_uuid"] = pseudo_uuid
+                    temp_entry["catalog_key"] = catalog_key
+                else:
+                    catalog_uuid = ""
+                    try:
+                        if brush.asset_data is not None:
+                            catalog_uuid = normalize_string(brush.asset_data.catalog_id)
+                    except (AttributeError, ReferenceError, RuntimeError):
+                        pass
 
-                catalog_key = catalog_map.get(catalog_uuid, "")
-                temp_entry["catalog_uuid"] = catalog_uuid
-                temp_entry["catalog_key"] = catalog_key
+                    catalog_key = catalog_map.get(catalog_uuid, "")
+                    temp_entry["catalog_uuid"] = catalog_uuid
+                    temp_entry["catalog_key"] = catalog_key
 
                 add_entry(entries, temp_entry)
 
@@ -1039,8 +1076,37 @@ class TS_ASSET_SHELF_PT_sidebar(bpy.types.Panel):
         # Icon grid view
         assets = get_filtered_assets(context)
         shelf_scale, shelf_scale_popup = get_asset_shelf_scale()
+        search_text = get_search_text(context)
+
         if not assets:
             layout.label(text="No brushes found", icon='INFO')
+        elif search_text:
+            # NUEVO: al escribir en el buscador se muestra un grid en vivo
+            # de iconos filtrados (equivalente al popup del icon view, pero
+            # incrustado en el panel). Blender no permite detectar el focus
+            # del campo ni abrir el popup del template_icon_view desde
+            # Python, así que el grid aparece con el primer carácter escrito
+            # y desaparece al limpiar la búsqueda.
+            grid = layout.grid_flow(row_major=True, even_columns=True)
+            for entry in assets:
+                icon_id = get_preview_icon(entry.get("name", ""))
+                if icon_id:
+                    op = grid.operator(
+                        "ts_asset_shelf.activate_brush",
+                        text=entry["name"] if wm.ts_brush_show_names else "",
+                        icon_value=icon_id,
+                    )
+                else:
+                    op = grid.operator(
+                        "ts_asset_shelf.activate_brush",
+                        text=entry["name"] if wm.ts_brush_show_names else "",
+                        icon='BRUSH_DATA',
+                    )
+                op.brush_name = entry["name"]
+                op.asset_type = entry["asset_type"]
+                op.asset_identifier = entry["asset_identifier"]
+                op.relative_identifier = entry["relative_identifier"]
+                op.library_label = entry["library_label"]
         else:
             layout.template_icon_view(
                 wm,
